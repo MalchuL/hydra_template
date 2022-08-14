@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
 import pytorch_lightning as pl
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Callback, LightningDataModule, LightningModule, Trainer
 from pytorch_lightning.loggers import LightningLoggerBase
 
@@ -30,6 +30,7 @@ def train(cfg: DictConfig) -> Tuple[Optional[float], Dict[str, Any]]:
     if cfg.get("seed"):
         pl.seed_everything(cfg.seed, workers=True)
 
+    OmegaConf.resolve(cfg)
     log.info(f"Instantiating datamodule <{cfg.datamodule._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.datamodule)
 

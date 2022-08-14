@@ -1,0 +1,97 @@
+_target_: src.models.stylegan_module.StyleGANModule
+_recursive_: False
+hparams:
+  z_dim: &z_dim 512
+  netG:
+    _target_: src.models.components.generators.stylegan.Generator
+    c_dim: 0
+    img_resolution: 256
+    img_channels: 3
+    z_dim: *z_dim
+    w_dim: 512
+    mapping_kwargs:
+      num_layers: 2
+    synthesis_kwargs:
+      channel_base: 16384
+      channel_max: 512
+      num_fp16_res: 4
+      conv_clamp: 256
+
+  norm:
+    mean: ${datamodule.transform_params.mean}
+    std: ${datamodule.transform_params.std}
+
+  # Train specific parameters
+  train:
+    netD: # Discriminator model
+      _target_: src.models.components.discriminators.stylegan_discriminator.Discriminator
+      c_dim: 0
+      img_resolution: 256
+      img_channels: 3
+      epilogue_kwargs:
+        mbstd_group_size: 4
+      channel_base: 16384
+      channel_max: 512
+      num_fp16_res: 4
+      conv_clamp: 256
+    ada_augs:
+      name: bgc
+
+    initialization:
+      pretrain_checkpoint_G: ${pretrain_gen}  # If passed model loads model else init_G argument initialization
+      init_G: # Initialization params for generator
+        init_type: normal
+        init_gain: 0.02
+      init_D: # Initialization params for discriminator
+        init_type: normal
+        init_gain: 0.02
+    speed:
+      cudnn_benchmark: False
+      allow_tf32: False
+
+    ema:
+      ema_kimg: 5.0
+      ema_rampup: 0.05
+
+
+    losses:
+      r1_gamma: 0.8192
+
+
+    logging:
+      img_log_freq: 400
+
+
+    params:
+      style_mixing_prob: 0.9
+
+      pl_batch_shrink: 2
+      pl_decay: 0.01
+      pl_weight: 2
+
+      ada_target: 0.6
+      ada_gamma: 0.99
+      ada_interval: 8
+      ada_kimg: 100
+
+      G_reg_interval: 8
+      D_reg_interval: 32
+
+    optimizing:
+      optimizers:
+        optimizer_G:
+          _target_: torch.optim.Adam
+          lr: &lr 0.0025
+          betas: [ 0.0, 0.99 ]
+
+        optimizer_D:
+          _target_: torch.optim.Adam
+          lr: *lr
+          betas: [ 0.0, 0.99 ]
+      schedulers:
+        interval: 'step'
+        scheduler_G: &scheduler
+          _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+          T_max: ${trainer.max_epochs}
+          eta_min: *lr
+        scheduler_D: *scheduler
