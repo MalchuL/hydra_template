@@ -169,17 +169,20 @@ class StyleGANModule(LightningModule):
     def discriminator_loss(self, real_img, gen_z):
         gen_img, _gen_ws = self.run_G(gen_z)
         gen_logits = self.run_D(gen_img) # Gets synced by loss_Dreal.
-        self.update_aug_probs(gen_logits)
+
         loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
         loss_Dgen = loss_Dgen.mean()
         self.log('loss_Dgen', loss_Dgen)
+        self.log('gen_logits', gen_logits.mean())
 
         real_img_tmp = real_img.detach().requires_grad_(True)
         real_logits = self.run_D(real_img_tmp)
+        self.update_aug_probs(real_logits)
 
         loss_Dreal = torch.nn.functional.softplus(-real_logits)  # -log(sigmoid(real_logits))
         loss_Dreal = loss_Dreal.mean()
         self.log('loss_Dreal', loss_Dreal)
+        self.log('real_logits', real_logits.mean())
 
         loss_Dr1 = 0
         if self.global_step % self.D_reg_interval in (0,1):
