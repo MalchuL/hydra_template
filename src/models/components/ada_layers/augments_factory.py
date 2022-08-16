@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 from .augment_pipe import AugmentPipe
@@ -21,10 +22,12 @@ AUGPIPE_SPECS = {
                    lumaflip=1, hue=1, saturation=1, imgfilter=1, noise=1, cutout=1),
 }
 
-def get_augments(name=None):
+def get_augments(name=None, augment_p=0):
     if name is None:
         return nn.Identity()
     else:
         conv2d_gradfix.enabled = True  # Improves training speed.
         grid_sample_gradfix.enabled = True  # Avoids errors with the augmentation pipe.
-        return AugmentPipe(**AUGPIPE_SPECS[name])
+        augment_pipe = AugmentPipe(**AUGPIPE_SPECS[name])
+        augment_pipe.p.copy_(torch.as_tensor(augment_p))
+        return augment_pipe

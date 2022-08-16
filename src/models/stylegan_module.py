@@ -134,7 +134,8 @@ class StyleGANModule(LightningModule):
         loss_Gmain = loss_Gmain.mean()
 
         loss_Gpl = 0
-        if self.global_step % self.G_reg_interval:
+        if self.global_step % self.G_reg_interval in (0,1):
+            # print('pl_grads', self.global_step)
             batch_size = gen_z.shape[0] // self.pl_batch_shrink
             gen_img, gen_ws = self.run_G(gen_z[:batch_size])
             pl_noise = torch.randn_like(gen_img) / math.sqrt(gen_img.shape[2] * gen_img.shape[3])
@@ -154,13 +155,16 @@ class StyleGANModule(LightningModule):
 
     def update_aug_probs(self, D_logits):
         # Execute ADA heuristic.
-        if self.global_step % self.ada_interval == 0:
+        if self.global_step % self.ada_interval in (0,1):
+            # print('update_aug_probs', self.global_step)
             signs = D_logits.sign().mean()
             batch_size = D_logits.shape[0]
             self.ada_stats = self.ada_stats * self.ada_gamma + (1 - self.ada_gamma) * signs
-            adjust = np.sign(self.ada_stats - self.ada_target) * (batch_size * self.ada_interval) / (
+            adjust = torch.sign(self.ada_stats - self.ada_target) * (batch_size * self.ada_interval) / (
                     self.ada_kimg * 1000)
             self.augment_pipe.p.copy_((self.augment_pipe.p + adjust).max(misc.constant(0, device=self.device)))
+        self.log('augment_pipe_p', self.augment_pipe.p)
+        self.log('ada_stats', self.ada_stats)
 
     def discriminator_loss(self, real_img, gen_z):
         gen_img, _gen_ws = self.run_G(gen_z)
@@ -168,15 +172,18 @@ class StyleGANModule(LightningModule):
         self.update_aug_probs(gen_logits)
         loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
         loss_Dgen = loss_Dgen.mean()
+        self.log('loss_Dgen', loss_Dgen)
 
         real_img_tmp = real_img.detach().requires_grad_(True)
         real_logits = self.run_D(real_img_tmp)
 
         loss_Dreal = torch.nn.functional.softplus(-real_logits)  # -log(sigmoid(real_logits))
         loss_Dreal = loss_Dreal.mean()
+        self.log('loss_Dreal', loss_Dreal)
 
         loss_Dr1 = 0
-        if self.global_step % self.D_reg_interval:
+        if self.global_step % self.D_reg_interval in (0,1):
+            # print('r1_grads', self.global_step)
             r1_grads = torch.autograd.grad(outputs=[real_logits.sum()], inputs=[real_img_tmp], create_graph=True,
                                            only_inputs=True)[0]
 
@@ -184,6 +191,7 @@ class StyleGANModule(LightningModule):
             loss_Dr1 = r1_penalty * (self.r1_gamma / 2)
 
             loss_Dr1 = (real_logits * 0 + loss_Dr1).mean().mul(self.D_reg_interval)
+            self.log('loss_Dr1', loss_Dr1)
 
 
         return loss_Dgen + loss_Dreal + loss_Dr1, gen_img
@@ -232,7 +240,7 @@ class StyleGANModule(LightningModule):
     @rank_zero_only
     def log_images(self, real, fake):
         # tensors [self.real, self.fake, preds, self.cartoon, self.edge_fake]
-        if self.global_step // 2 % self.hparams.train.logging.img_log_freq == 0:
+        if self.global_step // 2 % self.hparams.train.logging.img_log_freq in (0,1):
             with torch.no_grad():
                 bs = real.shape[0]
                 gen_z = torch.randn([bs, self.z_dim]).type_as(real)

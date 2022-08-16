@@ -3,7 +3,7 @@ _target_: src.datamodules.stylegan_datamodule.StyleGANDataModule
 data_dir: ${paths.data_dir}ffhq # data_dir is specified in config.yaml
 batch_size: 16
 transform_params:
-  load_size: 284
+  load_size: 256
   fine_size: 256
   mean: [0.5, 0.5, 0.5]
   std: [0.5, 0.5, 0.5]

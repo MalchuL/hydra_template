@@ -40,10 +40,10 @@ hparams:
     initialization:
       pretrain_checkpoint_G: ${pretrain_gen}  # If passed model loads model else init_G argument initialization
       init_G: # Initialization params for generator
-        init_type: normal
+        init_type: null
         init_gain: 0.02
       init_D: # Initialization params for discriminator
-        init_type: normal
+        init_type: null
         init_gain: 0.02
     speed:
       cudnn_benchmark: False
@@ -81,13 +81,13 @@ hparams:
       optimizers:
         optimizer_G:
           _target_: torch.optim.Adam
-          lr: &lr 0.0025
-          betas: [ 0.0, 0.99 ]
+          lr: &lr 0.002
+          betas: [ 0.0, 0.9919919678228657 ]
 
         optimizer_D:
           _target_: torch.optim.Adam
-          lr: *lr
-          betas: [ 0.0, 0.99 ]
+          lr: 0.0023529411764705885
+          betas: [ 0.0, 0.9905854573074332 ]
       schedulers:
         interval: 'step'
         scheduler_G: &scheduler
