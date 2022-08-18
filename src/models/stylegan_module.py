@@ -91,6 +91,8 @@ class StyleGANModule(LightningModule):
             self.pl_weight = self.hparams.train.params.pl_weight
             self.pl_decay = self.hparams.train.params.pl_decay
 
+            self.gen_z = None
+
 
     def create_generator(self):
         netG = instantiate(self.hparams.netG)
@@ -155,16 +157,17 @@ class StyleGANModule(LightningModule):
 
     def update_aug_probs(self, D_logits):
         # Execute ADA heuristic.
-        if self.global_step % self.ada_interval in (0,1):
-            # print('update_aug_probs', self.global_step)
-            signs = D_logits.sign().mean()
-            batch_size = D_logits.shape[0]
-            self.ada_stats = self.ada_stats * self.ada_gamma + (1 - self.ada_gamma) * signs
-            adjust = torch.sign(self.ada_stats - self.ada_target) * (batch_size * self.ada_interval) / (
-                    self.ada_kimg * 1000)
-            self.augment_pipe.p.copy_((self.augment_pipe.p + adjust).max(misc.constant(0, device=self.device)))
-        self.log('augment_pipe_p', self.augment_pipe.p)
-        self.log('ada_stats', self.ada_stats)
+        with torch.no_grad():
+            if self.global_step % self.ada_interval in (0,1):
+                # print('update_aug_probs', self.global_step)
+                signs = D_logits.sign().mean()
+                batch_size = D_logits.shape[0]
+                self.ada_stats = self.ada_stats * self.ada_gamma + (1 - self.ada_gamma) * signs
+                adjust = torch.sign(self.ada_stats - self.ada_target) * (batch_size * self.ada_interval) / (
+                        self.ada_kimg * 1000)
+                self.augment_pipe.p.copy_((self.augment_pipe.p + adjust).max(misc.constant(0, device=self.device)))
+            self.log('augment_pipe_p', self.augment_pipe.p)
+            self.log('ada_stats', self.ada_stats)
 
     def discriminator_loss(self, real_img, gen_z):
         gen_img, _gen_ws = self.run_G(gen_z)
@@ -244,10 +247,14 @@ class StyleGANModule(LightningModule):
     def log_images(self, real, fake):
         # tensors [self.real, self.fake, preds, self.cartoon, self.edge_fake]
         if self.global_step // 2 % self.hparams.train.logging.img_log_freq in (0,1):
-            with torch.no_grad():
+            if self.gen_z is None:
                 bs = real.shape[0]
                 gen_z = torch.randn([bs, self.z_dim]).type_as(real)
-                fake_ema = self(gen_z)
+                self.gen_z = gen_z
+            else:
+                gen_z = self.gen_z
+            with torch.no_grad():
+                fake_ema = self(gen_z.type_as(real))
             out_image = torch.cat([real, fake, fake_ema], dim=0)
             grid = torchvision.utils.make_grid(out_image, nrow=len(real))
             grid = self.backward_mapping(grid)[0]
