@@ -14,6 +14,7 @@ from pytorch_lightning import LightningModule
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.utilities import rank_zero_only
 
+from src.metrics.frechet_inception_distance import calculate_fretchet
 from src.models.components.ada_layers.augments_factory import get_augments
 from src.models.components.ada_layers.torch_utils import misc
 from src.models.components.utils.init_net import init_net
@@ -270,16 +271,15 @@ class StyleGANModule(LightningModule):
 
     def validation_step(self, batch, batch_nb):
 
-        self.netG.eval()
-        real = batch
-        bs = real.shape[0]
-        gen_z = torch.randn([bs, self.z_dim]).type_as(real)
+        real_idx = batch
+        bs = real_idx.shape[0]
+        gen_z = torch.randn([bs, self.z_dim]).type_as(real_idx)
         fake = self(gen_z)
 
         grid = torchvision.utils.make_grid(torch.cat([fake], dim=0))
         grid = grid * torch.tensor(self.hparams.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.hparams.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
 
-        torchvision.utils.save_image(grid, str(self.val_folder / (str(batch_nb) + '.png')), nrow=1)
+        torchvision.utils.save_image(grid, str(self.val_folder / (str(round(real_idx[0].item())) + '.png')), nrow=1)
         print(self.val_folder.absolute())
         return {}
 
@@ -301,7 +301,10 @@ class StyleGANModule(LightningModule):
         if not os.path.exists('output'):
             self.val_folder.mkdir(exist_ok=True, parents=True)
 
-
+    def on_validation_epoch_end(self) -> None:
+        with torch.inference_mode():
+            fid_score = calculate_fretchet(str(self.val_folder.absolute()), self.hparams.val.val_path, device=self.device, num_workers=self.hparams.val.num_workers)
+            self.log('fid_score', fid_score)
 
     def get_scheduler(self, optimizer, scheduler_params):
         if scheduler_params is not None:

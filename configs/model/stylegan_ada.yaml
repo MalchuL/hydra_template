@@ -95,3 +95,8 @@ hparams:
           T_max: ${trainer.max_epochs}
           eta_min: *lr
         scheduler_D: *scheduler
+
+  val:
+    val_path: ${paths.data_dir}ffhq/train_subset
+    num_workers: ${datamodule.num_workers}
+

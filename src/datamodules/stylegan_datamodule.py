@@ -5,6 +5,7 @@ from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset
 
 from src.datamodules.components.real_imgs_dataset import RealDataset
+from src.datamodules.components.custom_len_dataset import CustomLenDataset
 from src.datamodules.transforms.transform import get_transform
 
 
@@ -29,6 +30,7 @@ class StyleGANDataModule(LightningDataModule):
     def __init__(
             self,
             data_dir: str = "data/",
+            val_len: int = 1000,
             batch_size: int = 64,
             num_workers: int = 0,
             pin_memory: bool = False,
@@ -36,6 +38,7 @@ class StyleGANDataModule(LightningDataModule):
     ):
         super().__init__()
 
+        self.val_len = val_len
         self.transform_params = transform_params
         self.data_dir = data_dir
         self.batch_size = batch_size
@@ -57,7 +60,7 @@ class StyleGANDataModule(LightningDataModule):
         val_real_transform = get_transform(**self.transform_params, is_train=False, apply_strong=False)
 
         self.train_real_dataset = RealDataset(train_real_transform, self.data_dir, 'train')
-        self.val_dataset = RealDataset(val_real_transform, self.data_dir, 'val')
+        self.val_dataset = CustomLenDataset(self.val_len)
 
     def train_dataloader(self):
         return DataLoader(self.train_real_dataset,
