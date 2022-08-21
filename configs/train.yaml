@@ -4,7 +4,7 @@
 # order of defaults determines the order in which configs override each other
 defaults:
   - _self_
-  - datamodule: stylegan_datamodule.yaml
+  - datamodule: pretrain/stylegan_datamodule.yaml
   - model: stylegan_ada.yaml
   - callbacks: default.yaml
   - logger: tensorboard.yaml # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
@@ -29,6 +29,8 @@ defaults:
 
 # task name, determines output directory path
 task_name: "train"
+# Experiment name
+name: 'default'
 
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
@@ -51,3 +53,5 @@ pretrain_gen: null
 
 # seed for random number generators in pytorch, numpy and python.random
 seed: null
+
+git_id: ${git_commit:${hydra:runtime.cwd}, 7}

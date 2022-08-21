@@ -1,0 +1,25 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /datamodule: pretrain/stylegan_datamodule.yaml
+  - override /model: stylegan_ada.yaml
+  - override /callbacks: pretrain/stylegan.yaml
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["mnist", "simple_dense_net"]
+
+seed: 12345
+
+trainer:
+  check_val_every_n_epoch: 5
+  max_epochs: 300
+  limit_train_batches: 5000
+
+task_name: 'stylegan_pretrain'
+
+

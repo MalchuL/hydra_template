@@ -280,7 +280,6 @@ class StyleGANModule(LightningModule):
         grid = grid * torch.tensor(self.hparams.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.hparams.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
 
         torchvision.utils.save_image(grid, str(self.val_folder / (str(round(real_idx[0].item())) + '.png')), nrow=1)
-        print(self.val_folder.absolute())
         return {}
 
     def on_train_batch_end(self, outputs, batch, batch_idx: int, dataloader_idx: int):

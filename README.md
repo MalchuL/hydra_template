@@ -667,6 +667,12 @@ logger:
 
 ## Workflow
 
+**1. Experiments**
+1. Download FFHQ from https://www.kaggle.com/datasets/rahulbhalley/ffhq-256x256
+2. Put data into `data/ffhq/train_real`
+3. Make subset of first 1000 image and put into `data/ffhq/train_subset`
+4. Run `python src/train.py experiment=stylegan_pretrain name=001_test_run logger=[tensorboard,wandb]`
+
 **Basic workflow**
 
 1. Write your PyTorch Lightning module (see [models/mnist_module.py](src/models/mnist_module.py) for example)
