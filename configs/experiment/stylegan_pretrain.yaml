@@ -17,8 +17,8 @@ seed: 12345
 
 trainer:
   check_val_every_n_epoch: 5
-  max_epochs: 300
-  limit_train_batches: 5000
+  max_epochs: 400
+  limit_train_batches: 4000
 
 task_name: 'stylegan_pretrain'
 

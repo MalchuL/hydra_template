@@ -81,20 +81,23 @@ hparams:
       optimizers:
         optimizer_G:
           _target_: torch.optim.Adam
-          lr: &lr 0.002
+          lr: &lr_G 0.002
           betas: [ 0.0, 0.9919919678228657 ]
 
         optimizer_D:
           _target_: torch.optim.Adam
-          lr: 0.0023529411764705885
+          lr: &lr_D 0.0023529411764705885
           betas: [ 0.0, 0.9905854573074332 ]
       schedulers:
         interval: 'step'
-        scheduler_G: &scheduler
+        scheduler_G:
           _target_: torch.optim.lr_scheduler.CosineAnnealingLR
           T_max: ${trainer.max_epochs}
-          eta_min: *lr
-        scheduler_D: *scheduler
+          eta_min: *lr_G
+        scheduler_D:
+          _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+          T_max: ${trainer.max_epochs}
+          eta_min: *lr_D
 
   val:
     val_path: ${paths.data_dir}ffhq/train_subset
