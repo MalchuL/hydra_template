@@ -69,8 +69,8 @@ class StyleGANModule(LightningModule):
             logging.info(self.netD)
 
 
-            self.G_reg_interval = self.hparams.train.params.G_reg_interval
-            self.D_reg_interval = self.hparams.train.params.D_reg_interval
+            self.G_reg_interval = self.hparams.train.losses.path_length.G_reg_interval
+            self.D_reg_interval = self.hparams.train.losses.r1.D_reg_interval
 
             # Weights block
             # TODO add mb_ratio = reg_interval / (reg_interval + 1)
@@ -78,19 +78,19 @@ class StyleGANModule(LightningModule):
 
             # Additional params
             self.z_dim = self.hparams.z_dim
-            self.style_mixing_prob = self.hparams.train.params.style_mixing_prob
+            self.style_mixing_prob = self.hparams.train.style_mixing_prob
 
-            self.ada_target = self.hparams.train.params.ada_target
+            self.ada_target = self.hparams.train.ada_augs.ada_target
             self.register_buffer('ada_stats', torch.zeros([]))
-            self.ada_gamma = self.hparams.train.params.ada_gamma
-            self.ada_interval = self.hparams.train.params.ada_interval
-            self.ada_kimg = self.hparams.train.params.ada_kimg
+            self.ada_gamma = self.hparams.train.ada_augs.ada_gamma
+            self.ada_interval = self.hparams.train.ada_augs.ada_interval
+            self.ada_kimg = self.hparams.train.ada_augs.ada_kimg
 
-            self.r1_gamma = self.hparams.train.losses.r1_gamma
+            self.r1_gamma = self.hparams.train.losses.r1.r1_gamma
 
-            self.pl_batch_shrink = self.hparams.train.params.pl_batch_shrink
-            self.pl_weight = self.hparams.train.params.pl_weight
-            self.pl_decay = self.hparams.train.params.pl_decay
+            self.pl_batch_shrink = self.hparams.train.losses.path_length.pl_batch_shrink
+            self.pl_weight = self.hparams.train.losses.path_length.pl_weight
+            self.pl_decay = self.hparams.train.losses.path_length.pl_decay
 
             self.gen_z = None
 

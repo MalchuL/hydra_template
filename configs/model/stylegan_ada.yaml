@@ -23,6 +23,7 @@ hparams:
 
   # Train specific parameters
   train:
+
     netD: # Discriminator model
       _target_: src.models.components.discriminators.stylegan_discriminator.Discriminator
       c_dim: 0
@@ -34,8 +35,6 @@ hparams:
       channel_max: 512
       num_fp16_res: 4
       conv_clamp: 256
-    ada_augs:
-      name: bgc
 
     initialization:
       pretrain_checkpoint_G: ${pretrain_gen}  # If passed model loads model else init_G argument initialization
@@ -45,9 +44,21 @@ hparams:
       init_D: # Initialization params for discriminator
         init_type: null
         init_gain: 0.02
+
     speed:
       cudnn_benchmark: False
       allow_tf32: False
+
+    style_mixing_prob: 0.9
+
+    ada_augs:
+      name: bgc
+
+      ada_target: 0.6
+      ada_gamma: 0.99
+      ada_interval: 8
+      ada_kimg: 100
+
 
     ema:
       ema_kimg: 5.0
@@ -55,27 +66,21 @@ hparams:
 
 
     losses:
-      r1_gamma: 0.8192
+      r1:
+        r1_gamma: 0.8192
+        D_reg_interval: 32
+
+      path_length:
+        pl_batch_shrink: 2
+        pl_decay: 0.01
+        pl_weight: 2
+        G_reg_interval: 8
 
 
     logging:
       img_log_freq: 400
 
 
-    params:
-      style_mixing_prob: 0.9
-
-      pl_batch_shrink: 2
-      pl_decay: 0.01
-      pl_weight: 2
-
-      ada_target: 0.6
-      ada_gamma: 0.99
-      ada_interval: 8
-      ada_kimg: 100
-
-      G_reg_interval: 8
-      D_reg_interval: 32
 
     optimizing:
       optimizers:
