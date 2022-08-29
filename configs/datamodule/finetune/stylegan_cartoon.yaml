@@ -1,0 +1,12 @@
+_target_: src.datamodules.stylegan_finetune_datamodule.StyleGANFinetuneDataModule
+
+data_dir: ${paths.data_dir}finetune_ds/TheCartoonDatasetIUsedForTheBlendingExperiment # data_dir is specified in config.yaml
+batch_size: 12
+length: ${mul:${trainer.limit_train_batches}, ${datamodule.batch_size}}
+transform_params:
+  load_size: 256
+  fine_size: 256
+  mean: [0.5, 0.5, 0.5]
+  std: [0.5, 0.5, 0.5]
+num_workers: 8
+pin_memory: False

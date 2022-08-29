@@ -1,0 +1,25 @@
+defaults:
+  - stylegan_ada.yaml
+
+_target_: src.models.stylegan_module_finetune.StyleGANFinetuneModule
+
+hparams:
+  # Train specific parameters
+
+  train:
+    noise_mode: 'random'  # ['random', 'const'] noise for StyleGAN2 generator, if const will be zeros
+    train_mapper: False  # Train StyleGAN mapper or only synthesizer
+
+    face_crop: &face_crop [46, 81, 201, 236]  # Face crop for FFHQ
+
+    losses:
+      weights:
+        id_weight: 1.0
+
+      facial_recognition: # Norm from arcface
+        face_crop: *face_crop
+        ir_se50_weights: ${hydra:runtime.cwd}/checkpoints/model_ir_se50.pth
+        empty_scale: 1.0
+        norm:
+          mean: &mean [ 0.5, 0.5, 0.5 ]
+          std: &std [ 0.5, 0.5, 0.5 ]

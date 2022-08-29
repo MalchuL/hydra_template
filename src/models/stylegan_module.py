@@ -39,6 +39,8 @@ class StyleGANModule(LightningModule):
         https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html
     """
 
+    GENERATOR_LOAD_NAME = 'netG'
+
     def __init__(
         self,
         hparams,
@@ -98,7 +100,7 @@ class StyleGANModule(LightningModule):
     def create_generator(self):
         netG = instantiate(self.hparams.netG)
         if self.hparams.train.initialization.pretrain_checkpoint_G:
-            load_dict(netG, 'netG', self.hparams.train.initialization.pretrain_checkpoint_G)
+            load_dict(netG, self.GENERATOR_LOAD_NAME, self.hparams.train.initialization.pretrain_checkpoint_G)
         else:
             init_net(netG, **self.hparams.train.initialization.init_G)
         return netG

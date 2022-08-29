@@ -26,6 +26,9 @@ def _get_git_commit(repo_dir, num_values=7):
     hcommit = repo.head.commit
     return str(hcommit)[:num_values]
 
+def _mul(value1, value2):
+    return value1 * value2
+
 def register_resolvers():
     OmegaConf.register_new_resolver(
                 'exp_gamma',
@@ -58,5 +61,11 @@ def register_resolvers():
     OmegaConf.register_new_resolver(
         'git_commit',
         _get_git_commit,
+        use_cache=False
+    )
+
+    OmegaConf.register_new_resolver(
+        'mul',
+        _mul,
         use_cache=False
     )
