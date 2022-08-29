@@ -88,6 +88,7 @@ class StyleGANFinetuneModule(StyleGANModule):
         gen_logits = self.run_D(gen_img)
         loss_Gmain = torch.nn.functional.softplus(-gen_logits)  # -log(sigmoid(gen_logits))
         loss_Gmain = loss_Gmain.mean()
+        self.log('loss_Gmain', loss_Gmain)
 
         denormalized_fake = self.backward_mapping(gen_img)
         fake_normalized_to_id_loss = self.id_loss_mapping(denormalized_fake)
@@ -99,6 +100,7 @@ class StyleGANFinetuneModule(StyleGANModule):
 
         crop = self.face_crop
         id_loss = self.id_loss(fake_normalized_to_id_loss, base_normalized_to_id_loss, crop)
+        self.log('id_loss', id_loss / self.id_loss.weight)
 
         loss_Gpl = 0
         if self.global_step % self.G_reg_interval in (0,1):
@@ -115,7 +117,7 @@ class StyleGANFinetuneModule(StyleGANModule):
             loss_Gpl = pl_penalty * self.pl_weight
 
             loss_Gpl = (gen_img[:, 0, 0, 0] * 0 + loss_Gpl).mean().mul(self.G_reg_interval)
-
+            self.log('loss_Gpl', loss_Gpl)
 
 
         return loss_Gmain + loss_Gpl + id_loss
