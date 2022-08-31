@@ -64,9 +64,10 @@ def get_cartoon_transform(load_size, fine_size, is_train, apply_strong=True, mea
             A.RandomCrop(fine_size, fine_size, always_apply=True)]
 
     if apply_strong:
-        strong = []
-    else:
         strong = [A.ToGray(p=rare_prob)]
+    else:
+        strong = []
+
 
     post_process = [A.Normalize(mean,
                                 std),
@@ -103,8 +104,6 @@ def get_transform(load_size, fine_size, is_train, apply_strong=True, mean=(0.5, 
     often_prob = 0.6
     compression_prob = 0.35
     if apply_strong:
-        strong = []
-    else:
         strong = [
             A.OneOf([
                 A.GaussianBlur(blur_limit=3, p=normal_prob),
@@ -130,10 +129,13 @@ def get_transform(load_size, fine_size, is_train, apply_strong=True, mean=(0.5, 
             ], p=medium_prob),
             A.OneOf([
                 A.HueSaturationValue(p=medium_prob),
-                A.RandomBrightnessContrast(p=medium_prob, brightness_limit=(-0.3,0.2)),
+                A.RandomBrightnessContrast(p=medium_prob, brightness_limit=(-0.3, 0.2)),
             ], p=normal_prob),
 
         ]
+    else:
+        strong = []
+
 
     post_process = [A.Normalize(mean,
                                 std),
