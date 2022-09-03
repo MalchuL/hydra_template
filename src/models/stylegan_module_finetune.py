@@ -93,9 +93,11 @@ class StyleGANFinetuneModule(StyleGANModule):
 
 
 
-    def update_k_layered_gen(self):
+    def update_k_layered_gen(self, k=None):
+        if k is None:
+            k = self.k_blending_layers
         # From https://arxiv.org/pdf/2010.05334.pdf
-        partial_state_dict = self.get_k_layers_stylegan(self.k_blending_layers, self.netG_samples_generator)
+        partial_state_dict = self.get_k_layers_stylegan(k, self.netG_samples_generator)
         self.netG_k_layered.load_state_dict({**self.netG_ema.state_dict(), **partial_state_dict}, strict=True)
 
 
@@ -149,7 +151,6 @@ class StyleGANFinetuneModule(StyleGANModule):
 
     def on_validation_start(self):
         super(StyleGANFinetuneModule, self).on_validation_start()
-        self.update_k_layered_gen()
 
     @rank_zero_only
     def log_images(self, real, fake):
@@ -187,10 +188,16 @@ class StyleGANFinetuneModule(StyleGANModule):
         gen_z = torch.randn([bs, self.z_dim]).type_as(real_idx)
 
         base, _ = self.run_G_base(gen_z)
-        fake = self(gen_z)
+        syntesis = self.netG_ema.synthesis
+        count_blocks = len(syntesis.block_resolutions)
+        fakes = []
+        for k in range(count_blocks):
+            self.update_k_layered_gen(k)
+            fake = self(gen_z)
+            fakes.append(fake)
 
 
-        grid = torchvision.utils.make_grid(torch.cat([base, fake], dim=0))
+        grid = torchvision.utils.make_grid(torch.cat([base, *fakes], dim=0))
         grid = grid * torch.tensor(self.hparams.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.hparams.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
 
         torchvision.utils.save_image(grid, str(self.val_folder / (str(round(real_idx[0].item())) + '.png')), nrow=1)
