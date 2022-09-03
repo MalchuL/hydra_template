@@ -28,7 +28,7 @@ Training options:
     "z_dim": 512,
     "w_dim": 512,
     "mapping_kwargs": {
-      "num_layers": 2
+      "num_layers": 8
     },
     "synthesis_kwargs": {
       "channel_base": 16384,
@@ -42,7 +42,7 @@ Training options:
     "block_kwargs": {},
     "mapping_kwargs": {},
     "epilogue_kwargs": {
-      "mbstd_group_size": 4
+      "mbstd_group_size": 8
     },
     "channel_base": 16384,
     "channel_max": 512,
@@ -69,13 +69,13 @@ Training options:
   },
   "loss_kwargs": {
     "class_name": "training.loss.StyleGAN2Loss",
-    "r1_gamma": 0.8192
+    "r1_gamma": 1
   },
   "total_kimg": 25000,
-  "batch_size": 16,
-  "batch_gpu": 16,
-  "ema_kimg": 5.0,
-  "ema_rampup": 0.05,
+  "batch_size": 64,
+  "batch_gpu": 8,
+  "ema_kimg": 20,
+  "ema_rampup": null,
   "ada_target": 0.6,
   "augment_kwargs": {
     "class_name": "training.augment.AugmentPipe",

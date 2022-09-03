@@ -10,7 +10,7 @@ hparams:
     z_dim: *z_dim
     w_dim: 512
     mapping_kwargs:
-      num_layers: 2
+      num_layers: 8
     synthesis_kwargs:
       channel_base: 16384
       channel_max: 512
@@ -30,7 +30,7 @@ hparams:
       img_resolution: 256
       img_channels: 3
       epilogue_kwargs:
-        mbstd_group_size: 4
+        mbstd_group_size: 8
       channel_base: 16384
       channel_max: 512
       num_fp16_res: 4
@@ -61,8 +61,8 @@ hparams:
 
 
     ema:
-      ema_kimg: 5.0
-      ema_rampup: 0.05
+      ema_kimg: 20
+      ema_rampup: null
 
 
     losses:
@@ -96,13 +96,23 @@ hparams:
       schedulers:
         interval: 'step'
         scheduler_G:
-          _target_: torch.optim.lr_scheduler.CosineAnnealingLR
-          T_max: ${trainer.max_epochs}
-          eta_min: *lr_G
+          _target_: torch.optim.lr_scheduler.OneCycleLR
+          max_lr: *lr_G
+          epochs: ${trainer.max_epochs}
+          steps_per_epoch: ${trainer.limit_train_batches}
+          pct_start: ${onecycle_warmup_epoches:${trainer.max_epochs}, 1}  # The percentage of the cycle (in number of steps) spent increasing the learning rate.
+          div_factor: 25  # Determines the initial learning rate via initial_lr = max_lr/div_factor Default: 25
+          final_div_factor: ${get_one_cycle_final_div_factor:${model.hparams.train.optimizing.schedulers.scheduler_G.div_factor}, 1}  # Determines the minimum learning rate via min_lr = initial_lr/final_div_factor
+          cycle_momentum: False # !!!!Affect adam betas if True
         scheduler_D:
-          _target_: torch.optim.lr_scheduler.CosineAnnealingLR
-          T_max: ${trainer.max_epochs}
-          eta_min: *lr_D
+          _target_: torch.optim.lr_scheduler.OneCycleLR
+          max_lr: *lr_D
+          epochs: ${trainer.max_epochs}
+          steps_per_epoch: ${trainer.limit_train_batches}
+          pct_start: ${onecycle_warmup_epoches:${trainer.max_epochs}, 1}  # The percentage of the cycle (in number of steps) spent increasing the learning rate.
+          div_factor: 25  # Determines the initial learning rate via initial_lr = max_lr/div_factor Default: 25
+          final_div_factor: ${get_one_cycle_final_div_factor:${model.hparams.train.optimizing.schedulers.scheduler_G.div_factor}, 1}  # Determines the minimum learning rate via min_lr = initial_lr/final_div_factor
+          cycle_momentum: False # !!!!Affect adam betas if True
 
   val:
     val_path: ${paths.data_dir}ffhq/train_subset

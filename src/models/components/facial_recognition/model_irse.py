@@ -7,8 +7,9 @@ Modified Backbone implementation from [TreB1eN](https://github.com/TreB1eN/Insig
 
 
 class Backbone(Module):
-    def __init__(self, input_size, num_layers, mode='ir', drop_ratio=0.4, affine=True):
+    def __init__(self, input_size, num_layers, mode='ir', drop_ratio=0.4, affine=True, apply_norm=True):
         super(Backbone, self).__init__()
+        self.apply_norm = apply_norm
         assert input_size in [112, 224], "input_size should be 112 or 224"
         assert num_layers in [50, 100, 152], "num_layers should be 50, 100 or 152"
         assert mode in ['ir', 'ir_se'], "mode should be ir or ir_se"
@@ -45,7 +46,9 @@ class Backbone(Module):
         x = self.input_layer(x)
         x = self.body(x)
         x = self.output_layer(x)
-        return l2_norm(x)
+        if self.apply_norm:
+            x = l2_norm(x)
+        return x
 
 
 def IR_50(input_size):

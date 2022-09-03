@@ -3,14 +3,23 @@ defaults:
 
 _target_: src.models.stylegan_module_finetune.StyleGANFinetuneModule
 
+k_blending_layers: 4
+
 hparams:
   # Train specific parameters
 
   train:
-    noise_mode: 'random'  # ['random', 'const'] noise for StyleGAN2 generator, if const will be zeros
+    netD: # Discriminator model
+      epilogue_kwargs:
+        mbstd_group_size: 4
+    noise_mode: 'const'  # ['random', 'const'] noise for StyleGAN2 generator, if const will be zeros
     train_mapper: False  # Train StyleGAN mapper or only synthesizer
 
     face_crop: &face_crop [46, 81, 201, 236]  # Face crop for FFHQ
+
+    ema:
+      ema_kimg: 5.0
+      ema_rampup: 0.05
 
     losses:
       weights:
@@ -23,3 +32,10 @@ hparams:
         norm:
           mean: &mean [ 0.5, 0.5, 0.5 ]
           std: &std [ 0.5, 0.5, 0.5 ]
+    optimizing:
+      schedulers:
+        interval: 'step'
+        scheduler_G:
+          max_lr: 0.0004
+        scheduler_D:
+          max_lr: 0.0004

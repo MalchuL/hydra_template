@@ -290,7 +290,8 @@ class StyleGANModule(LightningModule):
             ema_kimg = self.hparams.train.ema.ema_kimg
             ema_rampup = self.hparams.train.ema.ema_rampup
             ema_nimg = ema_kimg * 1000
-            ema_nimg = min(ema_nimg, self.global_step * ema_rampup)
+            if ema_rampup is not None:
+                ema_nimg = min(ema_nimg, self.global_step * ema_rampup / 2)
             ema_beta = 0.5 ** (1 / max(ema_nimg, 1e-8))
             for p_ema, p in zip(self.netG_ema.parameters(), self.netG.parameters()):
                 p_ema.copy_(p.lerp(p_ema, ema_beta))

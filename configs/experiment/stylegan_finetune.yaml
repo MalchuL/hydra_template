@@ -16,7 +16,7 @@ tags: ["mnist", "simple_dense_net"]
 seed: 12345
 
 trainer:
-  check_val_every_n_epoch: 5
+  check_val_every_n_epoch: 1
   max_epochs: 400
   limit_train_batches: 4000
 

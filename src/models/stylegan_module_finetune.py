@@ -17,7 +17,8 @@ from pytorch_lightning.utilities import rank_zero_only
 from src.metrics.frechet_inception_distance import calculate_fretchet
 from src.models.components.ada_layers.augments_factory import get_augments
 from src.models.components.ada_layers.torch_utils import misc
-from src.models.components.losses.id_loss import IDLoss
+from src.models.components.generators.stylegan import Generator
+from src.models.components.losses.id_loss import IDLoss, IDMSELoss
 from src.models.components.losses.loss_wrapper import LossWrapper
 from src.models.components.utils.init_net import init_net
 from src.models.stylegan_module import StyleGANModule
@@ -47,18 +48,19 @@ class StyleGANFinetuneModule(StyleGANModule):
     def __init__(
         self,
         hparams,
+        k_blending_layers=0,
         is_train=True
     ):
         super().__init__(hparams, is_train)
 
-
+        self.k_blending_layers = k_blending_layers
+        self.netG_k_layered = copy.deepcopy(self.netG).eval()
         if is_train:
             # Copy of model for generating samples
             self.netG_samples_generator = copy.deepcopy(self.netG).eval()
-            self.netG_k_layered = copy.deepcopy(self.netG).eval()
 
             # Id loss
-            self.id_loss = LossWrapper(IDLoss(ir_se50_weights=self.hparams.train.losses.facial_recognition.ir_se50_weights,
+            self.id_loss = LossWrapper(IDMSELoss(ir_se50_weights=self.hparams.train.losses.facial_recognition.ir_se50_weights,
                                               empty_scale=self.hparams.train.losses.facial_recognition.empty_scale),
                                        self.hparams.train.losses.weights.id_weight)
             self.register_buffer('id_loss_mean',
@@ -71,7 +73,14 @@ class StyleGANFinetuneModule(StyleGANModule):
     def id_loss_mapping(self, real_tensor):
         return (real_tensor - self.id_loss_mean) / self.id_loss_std
 
+    def forward(self, z):
+        return self.netG_k_layered(z, None, noise_mode='const')
 
+    def forward_ema(self, z):
+        return self.netG_ema(z, None, noise_mode='const')
+
+    def forward_base(self, z):
+        return self.netG_samples_generator(z, None, noise_mode='const')
     def run_G(self, z):
         ws = self.netG.mapping(z, None)
         img = self.netG.synthesis(ws, noise_mode=self.hparams.train.noise_mode)
@@ -82,6 +91,22 @@ class StyleGANFinetuneModule(StyleGANModule):
         img = self.netG_samples_generator.synthesis(ws, noise_mode=self.hparams.train.noise_mode)
         return img, ws
 
+
+
+    def update_k_layered_gen(self):
+        # From https://arxiv.org/pdf/2010.05334.pdf
+        partial_state_dict = self.get_k_layers_stylegan(self.k_blending_layers, self.netG_samples_generator)
+        self.netG_k_layered.load_state_dict({**self.netG_ema.state_dict(), **partial_state_dict}, strict=True)
+
+
+    def get_k_layers_stylegan(self, k, netG: Generator):
+        new_state_dict = {**netG.mapping.state_dict(prefix='mapping.')}
+        syntesis = netG.synthesis
+        blocks = syntesis.block_resolutions[:k]
+        # print('Blocks from  base', blocks)
+        for block in blocks:
+            new_state_dict.update(getattr(syntesis, f'b{block}').state_dict(prefix=f'synthesis.b{block}.'))
+        return new_state_dict
 
     def generator_loss(self, gen_z):
         gen_img, _gen_ws = self.run_G(gen_z)  # May get synced by Gpl.
@@ -121,6 +146,39 @@ class StyleGANFinetuneModule(StyleGANModule):
 
 
         return loss_Gmain + loss_Gpl + id_loss
+
+    def on_validation_start(self):
+        super(StyleGANFinetuneModule, self).on_validation_start()
+        self.update_k_layered_gen()
+
+    @rank_zero_only
+    def log_images(self, real, fake):
+        self.update_k_layered_gen()
+        # tensors [self.real, self.fake, preds, self.cartoon, self.edge_fake]
+        if self.global_step // 2 % self.hparams.train.logging.img_log_freq in (0,1):
+            if self.gen_z is None:
+                bs = real.shape[0]
+                gen_z = torch.randn([bs, self.z_dim]).type_as(real)
+                self.gen_z = gen_z
+            else:
+                gen_z = self.gen_z
+            with torch.no_grad():
+                fake_ema_k_layered = self(gen_z.type_as(real))
+                fake_ema = self.forward_ema(gen_z.type_as(real))
+                fake_base = self.forward_base(gen_z.type_as(real))
+            out_image = torch.cat([real, fake, fake_ema_k_layered, fake_base, fake_ema], dim=0)
+            grid = torchvision.utils.make_grid(out_image, nrow=len(real))
+            grid = self.backward_mapping(grid)[0]
+            grid = torch.clamp(grid, 0.0, 1.0)
+
+            for logger in self.loggers:
+                print('Log image', self.global_step // 2)  # To avoid segmentation fault
+                if isinstance(logger, TensorBoardLogger):
+                    logger.experiment.add_image('train_image', grid, self.global_step // 2)
+                elif isinstance(logger, WandbLogger):
+                    logger.experiment.log({'train_image': [wandb.Image(grid)]})
+
+
 
     def validation_step(self, batch, batch_nb):
 

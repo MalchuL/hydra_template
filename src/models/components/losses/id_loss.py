@@ -13,7 +13,7 @@ class IDLoss(nn.Module):
         super(IDLoss, self).__init__()
         self.scale = empty_scale
         print('Loading ResNet ArcFace')
-        self.facenet = Backbone(input_size=112, num_layers=50, drop_ratio=0.6, mode='ir_se')
+        self.facenet = Backbone(input_size=112, num_layers=50, drop_ratio=0.6, mode='ir_se', apply_norm=False)
         self.facenet.load_state_dict(torch.load(ir_se50_weights))
 
         self.face_crop = FaceCropper(112, empty_scale=empty_scale)
@@ -52,3 +52,14 @@ class IDRMSELoss(IDLoss):
 
         rmse_loss = torch.sqrt(F.mse_loss(y_hat_feats, y_feats, reduction='none').sum(1))
         return rmse_loss.mean()
+
+class IDMSELoss(IDLoss):
+    def forward(self, y_hat, y, crop=None):
+        self.facenet.eval()
+        with torch.no_grad():
+            y_feats = self.extract_feats(y, crop)  # Otherwise use the feature from there
+        y_hat_feats = self.extract_feats(y_hat, crop)
+        y_feats = y_feats.detach()
+
+        mse_loss = F.mse_loss(y_hat_feats, y_feats)
+        return mse_loss.mean()
