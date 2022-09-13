@@ -673,6 +673,11 @@ logger:
 3. Make subset of first 1000 image and put into `data/ffhq/train_subset`
 4. Run `python src/train.py experiment=stylegan_pretrain name=001_test_run logger=[tensorboard,wandb]`
 
+
+**2. Finetune StyleGAN**
+1. Download ckpts for facial recognition from [here](https://drive.google.com/file/d/1KW7bjndL3QG3sxBbZxreGHigcCCpsDgn/view) from this repo  https://github.com/orpatashnik/StyleCLIP
+2. 
+
 **Basic workflow**
 
 1. Write your PyTorch Lightning module (see [models/mnist_module.py](src/models/mnist_module.py) for example)

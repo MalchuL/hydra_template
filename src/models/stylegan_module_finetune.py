@@ -60,7 +60,7 @@ class StyleGANFinetuneModule(StyleGANModule):
             self.netG_samples_generator = copy.deepcopy(self.netG).eval()
 
             # Id loss
-            self.id_loss = LossWrapper(IDMSELoss(ir_se50_weights=self.hparams.train.losses.facial_recognition.ir_se50_weights,
+            self.id_loss = LossWrapper(IDLoss(ir_se50_weights=self.hparams.train.losses.facial_recognition.ir_se50_weights,
                                               empty_scale=self.hparams.train.losses.facial_recognition.empty_scale),
                                        self.hparams.train.losses.weights.id_weight)
             self.register_buffer('id_loss_mean',
@@ -81,24 +81,32 @@ class StyleGANFinetuneModule(StyleGANModule):
 
     def forward_base(self, z):
         return self.netG_samples_generator(z, None, noise_mode='const')
-    def run_G(self, z):
-        ws = self.netG.mapping(z, None)
-        img = self.netG.synthesis(ws, noise_mode=self.hparams.train.noise_mode)
-        return img, ws
 
-    def run_G_base(self, z):
-        ws = self.netG_samples_generator.mapping(z, None)
-        img = self.netG_samples_generator.synthesis(ws, noise_mode=self.hparams.train.noise_mode)
-        return img, ws
+    def run_G_and_base(self, z):
+        ws_G = self.netG.mapping(z, None)
+        with torch.no_grad():
+            ws_base = self.netG_samples_generator.mapping(z, None)
+        if self.style_mixing_prob > 0:
+            cutoff = torch.empty([], dtype=torch.int64, device=ws_G.device).random_(1, ws_G.shape[1])
+            cutoff = torch.where(torch.rand([], device=ws_G.device) < self.style_mixing_prob, cutoff,
+                                 torch.full_like(cutoff, ws_G.shape[1]))
 
+            rand_z = torch.randn_like(z)
+            ws_G[:, cutoff:] = self.netG.mapping(rand_z, None, skip_w_avg_update=True)[:, cutoff:]
+            with torch.no_grad():
+                ws_base[:, cutoff:] = self.netG_samples_generator.mapping(rand_z, None, skip_w_avg_update=True)[:, cutoff:]
 
+        img_G = self.netG.synthesis(ws_G)
+        with torch.no_grad():
+            img_base = self.netG.synthesis(ws_base)
+        return img_G, img_base
 
     def update_k_layered_gen(self, k=None):
         if k is None:
             k = self.k_blending_layers
         # From https://arxiv.org/pdf/2010.05334.pdf
-        partial_state_dict = self.get_k_layers_stylegan(k, self.netG_samples_generator)
-        self.netG_k_layered.load_state_dict({**self.netG_ema.state_dict(), **partial_state_dict}, strict=True)
+        partial_state_dict = self.get_k_layers_stylegan(k, self.netG_ema)
+        self.netG_k_layered.load_state_dict({**self.netG_samples_generator.state_dict(), **partial_state_dict}, strict=True)
 
 
     def get_k_layers_stylegan(self, k, netG: Generator):
@@ -111,7 +119,7 @@ class StyleGANFinetuneModule(StyleGANModule):
         return new_state_dict
 
     def generator_loss(self, gen_z):
-        gen_img, _gen_ws = self.run_G(gen_z)  # May get synced by Gpl.
+        gen_img, gen_base_img = self.run_G_and_base(gen_z)  # May get synced by Gpl.
         gen_logits = self.run_D(gen_img)
         loss_Gmain = torch.nn.functional.softplus(-gen_logits)  # -log(sigmoid(gen_logits))
         loss_Gmain = loss_Gmain.mean()
@@ -120,8 +128,6 @@ class StyleGANFinetuneModule(StyleGANModule):
         denormalized_fake = self.backward_mapping(gen_img)
         fake_normalized_to_id_loss = self.id_loss_mapping(denormalized_fake)
 
-        with torch.no_grad():
-            gen_base_img, _gen_base_ws = self.run_G_base(gen_z)
         denormalized_base = self.backward_mapping(gen_base_img)
         base_normalized_to_id_loss = self.id_loss_mapping(denormalized_base)
 
@@ -157,12 +163,12 @@ class StyleGANFinetuneModule(StyleGANModule):
         self.update_k_layered_gen()
         # tensors [self.real, self.fake, preds, self.cartoon, self.edge_fake]
         if self.global_step // 2 % self.hparams.train.logging.img_log_freq in (0,1):
-            if self.gen_z is None:
+            if self.freezed_gen_z is None:
                 bs = real.shape[0]
                 gen_z = torch.randn([bs, self.z_dim]).type_as(real)
-                self.gen_z = gen_z
+                self.freezed_gen_z = gen_z
             else:
-                gen_z = self.gen_z
+                gen_z = self.freezed_gen_z
             with torch.no_grad():
                 fake_ema_k_layered = self(gen_z.type_as(real))
                 fake_ema = self.forward_ema(gen_z.type_as(real))
@@ -187,7 +193,7 @@ class StyleGANFinetuneModule(StyleGANModule):
         bs = real_idx.shape[0]
         gen_z = torch.randn([bs, self.z_dim]).type_as(real_idx)
 
-        base, _ = self.run_G_base(gen_z)
+        base = self.forward_base(gen_z)
         syntesis = self.netG_ema.synthesis
         count_blocks = len(syntesis.block_resolutions)
         fakes = []

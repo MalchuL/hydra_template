@@ -94,7 +94,7 @@ class StyleGANModule(LightningModule):
             self.pl_weight = self.hparams.train.losses.path_length.pl_weight
             self.pl_decay = self.hparams.train.losses.path_length.pl_decay
 
-            self.gen_z = None
+            self.freezed_gen_z = None
 
 
     def create_generator(self):
@@ -212,7 +212,7 @@ class StyleGANModule(LightningModule):
         if optimizer_idx == 0:
             real = batch['real']
             bs = real.shape[0]
-            gen_z = torch.randn([bs, self.z_dim]).type_as(real)
+            self.gen_z = torch.randn([bs, self.z_dim]).type_as(real)
 
             # This correct else does not converge
             self.netG.train()
@@ -221,7 +221,7 @@ class StyleGANModule(LightningModule):
             self.requires_grad(self.netG, True)
             self.requires_grad(self.netD, False)
 
-            loss = self.generator_loss(gen_z)
+            loss = self.generator_loss(self.gen_z)
 
             self.log('loss_G', loss, prog_bar=True)
 
@@ -229,7 +229,8 @@ class StyleGANModule(LightningModule):
         elif optimizer_idx == 1:
             real = batch['real']
             bs = real.shape[0]
-            gen_z = torch.randn([bs, self.z_dim]).type_as(real)
+            if not hasattr(self, 'gen_z'):
+                self.gen_z = torch.randn([bs, self.z_dim]).type_as(real)
             # This correct
             self.netD.train()
             self.netG.eval()
@@ -237,7 +238,7 @@ class StyleGANModule(LightningModule):
             self.requires_grad(self.netG, False)
             self.requires_grad(self.netD, True)
 
-            loss, fake_img = self.discriminator_loss(real, gen_z)
+            loss, fake_img = self.discriminator_loss(real, self.gen_z)
             self.log_images(real, fake_img)
             self.log('loss_D', loss, prog_bar=True)
 
@@ -250,12 +251,12 @@ class StyleGANModule(LightningModule):
     def log_images(self, real, fake):
         # tensors [self.real, self.fake, preds, self.cartoon, self.edge_fake]
         if self.global_step // 2 % self.hparams.train.logging.img_log_freq in (0,1):
-            if self.gen_z is None:
+            if self.freezed_gen_z is None:
                 bs = real.shape[0]
                 gen_z = torch.randn([bs, self.z_dim]).type_as(real)
-                self.gen_z = gen_z
+                self.freezed_gen_z = gen_z
             else:
-                gen_z = self.gen_z
+                gen_z = self.freezed_gen_z
             with torch.no_grad():
                 fake_ema = self(gen_z.type_as(real))
             out_image = torch.cat([real, fake, fake_ema], dim=0)

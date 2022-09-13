@@ -3,7 +3,7 @@ defaults:
 
 _target_: src.models.stylegan_module_finetune.StyleGANFinetuneModule
 
-k_blending_layers: 4
+k_blending_layers: 3  # Resolution at 2 ^ (k_blending_layers + 1)
 
 hparams:
   # Train specific parameters
@@ -18,12 +18,12 @@ hparams:
     face_crop: &face_crop [46, 81, 201, 236]  # Face crop for FFHQ
 
     ema:
-      ema_kimg: 5.0
-      ema_rampup: 0.05
+      ema_kimg: 20.0
+      ema_rampup: null
 
     losses:
       weights:
-        id_weight: 1.0
+        id_weight: 0.005
 
       facial_recognition: # Norm from arcface
         face_crop: *face_crop
