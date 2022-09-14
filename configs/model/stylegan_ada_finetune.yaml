@@ -23,7 +23,7 @@ hparams:
 
     losses:
       weights:
-        id_weight: 0.005
+        id_weight: 1.0
 
       facial_recognition: # Norm from arcface
         face_crop: *face_crop
@@ -36,6 +36,6 @@ hparams:
       schedulers:
         interval: 'step'
         scheduler_G:
-          max_lr: 0.0004
+          max_lr: 0.002
         scheduler_D:
-          max_lr: 0.0004
+          max_lr: 0.002

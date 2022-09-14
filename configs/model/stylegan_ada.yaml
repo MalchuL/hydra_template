@@ -68,13 +68,13 @@ hparams:
     losses:
       r1:
         r1_gamma: 0.8192
-        D_reg_interval: 32
+        D_reg_interval: 16
 
       path_length:
         pl_batch_shrink: 2
         pl_decay: 0.01
         pl_weight: 2
-        G_reg_interval: 8
+        G_reg_interval: 4
 
 
     logging:

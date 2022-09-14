@@ -2,6 +2,7 @@ import copy
 import logging
 import math
 import os
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, List
 
@@ -50,6 +51,7 @@ class StyleGANModule(LightningModule):
 
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
+        self.automatic_optimization = False
         self.save_hyperparameters(hparams)
 
         self.netG = self.create_generator()
@@ -96,7 +98,7 @@ class StyleGANModule(LightningModule):
 
             self.freezed_gen_z = None
 
-
+            self.call_count = defaultdict(int)
     def create_generator(self):
         netG = instantiate(self.hparams.netG)
         if self.hparams.train.initialization.pretrain_checkpoint_G:
@@ -138,25 +140,23 @@ class StyleGANModule(LightningModule):
         loss_Gmain = torch.nn.functional.softplus(-gen_logits)  # -log(sigmoid(gen_logits))
         loss_Gmain = loss_Gmain.mean()
 
-        loss_Gpl = 0
-        if self.global_step % self.G_reg_interval in (0,1):
-            # print('pl_grads', self.global_step)
-            batch_size = gen_z.shape[0] // self.pl_batch_shrink
-            gen_img, gen_ws = self.run_G(gen_z[:batch_size])
-            pl_noise = torch.randn_like(gen_img) / math.sqrt(gen_img.shape[2] * gen_img.shape[3])
-            pl_grads = torch.autograd.grad(outputs=[(gen_img * pl_noise).sum()], inputs=[gen_ws], create_graph=True,
-                                               only_inputs=True)[0]
-            pl_lengths = pl_grads.square().sum(2).mean(1).sqrt()
-            pl_mean = self.pl_mean.lerp(pl_lengths.mean(), self.pl_decay)
-            self.pl_mean.copy_(pl_mean.detach())
-            pl_penalty = (pl_lengths - pl_mean).square()
-            loss_Gpl = pl_penalty * self.pl_weight
+        return loss_Gmain
 
-            loss_Gpl = (gen_img[:, 0, 0, 0] * 0 + loss_Gpl).mean().mul(self.G_reg_interval)
+    def generator_reg(self, gen_z):
+        batch_size = gen_z.shape[0] // self.pl_batch_shrink
+        gen_img, gen_ws = self.run_G(gen_z[:batch_size])
+        pl_noise = torch.randn_like(gen_img) / math.sqrt(gen_img.shape[2] * gen_img.shape[3])
+        pl_grads = torch.autograd.grad(outputs=[(gen_img * pl_noise).sum()], inputs=[gen_ws], create_graph=True,
+                                       only_inputs=True)[0]
+        pl_lengths = pl_grads.square().sum(2).mean(1).sqrt()
+        pl_mean = self.pl_mean.lerp(pl_lengths.mean(), self.pl_decay)
+        self.pl_mean.copy_(pl_mean.detach())
+        pl_penalty = (pl_lengths - pl_mean).square()
+        loss_Gpl = pl_penalty * self.pl_weight
 
+        loss_Gpl = (gen_img[:, 0, 0, 0] * 0 + loss_Gpl).mean()
+        return loss_Gpl
 
-
-        return loss_Gmain + loss_Gpl
 
     def update_aug_probs(self, D_logits):
         # Execute ADA heuristic.
@@ -190,67 +190,111 @@ class StyleGANModule(LightningModule):
         self.log('loss_Dreal', loss_Dreal)
         self.log('real_logits', real_logits.mean())
 
-        loss_Dr1 = 0
-        if self.global_step % self.D_reg_interval in (0,1):
-            # print('r1_grads', self.global_step)
-            r1_grads = torch.autograd.grad(outputs=[real_logits.sum()], inputs=[real_img_tmp], create_graph=True,
-                                           only_inputs=True)[0]
 
-            r1_penalty = r1_grads.square().sum([1, 2, 3])
-            loss_Dr1 = r1_penalty * (self.r1_gamma / 2)
+        return loss_Dgen + loss_Dreal, gen_img
 
-            loss_Dr1 = (real_logits * 0 + loss_Dr1).mean().mul(self.D_reg_interval)
-            self.log('loss_Dr1', loss_Dr1)
+    def discriminator_reg(self, real_img):
+        # print('r1_grads', self.global_step)
+        real_img_tmp = real_img.detach().requires_grad_(True)
+        real_logits = self.run_D(real_img_tmp)
+        r1_grads = torch.autograd.grad(outputs=[real_logits.sum()], inputs=[real_img_tmp], create_graph=True,
+                                       only_inputs=True)[0]
+
+        r1_penalty = r1_grads.square().sum([1, 2, 3])
+        loss_Dr1 = r1_penalty * (self.r1_gamma / 2)
+
+        loss_Dr1 = (real_logits * 0 + loss_Dr1).mean()
+        self.log('loss_Dr1', loss_Dr1)
+        return loss_Dr1
+
+    @rank_zero_only
+    def check_count(self, key, freq):
+        self.call_count[key] += 1
+        if self.call_count[key] >= freq:
+            self.call_count[key] = 0
+            return True
+        else:
+            return False
 
 
-        return loss_Dgen + loss_Dreal + loss_Dr1, gen_img
-
-
-    def training_step(self, batch: Any, batch_idx: int, optimizer_idx):
+    def training_step(self, batch: Any, batch_idx: int):
         self.augment_pipe.train().requires_grad_(False)
 
-        if optimizer_idx == 0:
-            real = batch['real']
-            bs = real.shape[0]
-            self.gen_z = torch.randn([bs, self.z_dim]).type_as(real)
+        real = batch['real']
+        bs = real.shape[0]
+        self.gen_z = torch.randn([bs, self.z_dim]).type_as(real)
 
-            # This correct else does not converge
+        g_opt, d_opt = self.optimizers()
+        STEPS_OFFSET = 2  # self.global_step will skips by 2 : [0, 2, 4, 8]
+
+        ######################
+        # Optimize Generator #
+        ######################
+        self.netG.train()
+        self.netD.train()
+
+        self.requires_grad(self.netG, True)
+        self.requires_grad(self.netD, False)
+
+        loss_G = self.generator_loss(self.gen_z)
+
+        self.log('loss_G', loss_G, prog_bar=True)
+
+        g_opt.zero_grad()
+        self.manual_backward(loss_G)
+        g_opt.step()
+
+        ##########################
+        # Optimize Discriminator #
+        ##########################
+        self.netD.train()
+        self.netG.eval()
+
+        self.requires_grad(self.netG, False)
+        self.requires_grad(self.netD, True)
+
+        errD, fake_img = self.discriminator_loss(real, self.gen_z)
+        self.log_images(real, fake_img)
+        self.log('loss_D', errD, prog_bar=True)
+
+        d_opt.zero_grad()
+        self.manual_backward(errD)
+        d_opt.step()
+
+        ##########################
+        # Reg generator
+        ##########################
+        if self.check_count('G_reg_interval', self.G_reg_interval):
             self.netG.train()
-            self.netD.train()
-
             self.requires_grad(self.netG, True)
-            self.requires_grad(self.netD, False)
+            G_reg_loss = self.generator_reg(self.gen_z) * self.G_reg_interval
+            self.log('G_reg_loss', G_reg_loss, prog_bar=True)
 
-            loss = self.generator_loss(self.gen_z)
+            g_opt.zero_grad()
+            self.manual_backward(G_reg_loss)
+            g_opt.step()
 
-            self.log('loss_G', loss, prog_bar=True)
-
-
-        elif optimizer_idx == 1:
-            real = batch['real']
-            bs = real.shape[0]
-            if not hasattr(self, 'gen_z'):
-                self.gen_z = torch.randn([bs, self.z_dim]).type_as(real)
-            # This correct
+        ##########################
+        # Reg discriminator
+        ##########################
+        if self.check_count('D_reg_interval', self.D_reg_interval):
             self.netD.train()
-            self.netG.eval()
-
-            self.requires_grad(self.netG, False)
             self.requires_grad(self.netD, True)
+            D_reg_loss = self.discriminator_reg(real) * self.D_reg_interval
+            self.log('D_reg_loss', D_reg_loss, prog_bar=True)
 
-            loss, fake_img = self.discriminator_loss(real, self.gen_z)
-            self.log_images(real, fake_img)
-            self.log('loss_D', loss, prog_bar=True)
+            d_opt.zero_grad()
+            self.manual_backward(D_reg_loss)
+            d_opt.step()
 
-        else:
-            raise ValueError(f"Optimizer with id {optimizer_idx} can't exists")
-
-        return {'loss': loss}
+        sch_G, sch_D = self.lr_schedulers()
+        sch_G.step()
+        sch_D.step()
 
     @rank_zero_only
     def log_images(self, real, fake):
         # tensors [self.real, self.fake, preds, self.cartoon, self.edge_fake]
-        if self.global_step // 2 % self.hparams.train.logging.img_log_freq in (0,1):
+        if self.check_count('img_log_freq', self.hparams.train.logging.img_log_freq):
             if self.freezed_gen_z is None:
                 bs = real.shape[0]
                 gen_z = torch.randn([bs, self.z_dim]).type_as(real)

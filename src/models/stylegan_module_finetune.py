@@ -135,25 +135,8 @@ class StyleGANFinetuneModule(StyleGANModule):
         id_loss = self.id_loss(fake_normalized_to_id_loss, base_normalized_to_id_loss, crop)
         self.log('id_loss', id_loss / self.id_loss.weight)
 
-        loss_Gpl = 0
-        if self.global_step % self.G_reg_interval in (0,1):
-            # print('pl_grads', self.global_step)
-            batch_size = gen_z.shape[0] // self.pl_batch_shrink
-            gen_img, gen_ws = self.run_G(gen_z[:batch_size])
-            pl_noise = torch.randn_like(gen_img) / math.sqrt(gen_img.shape[2] * gen_img.shape[3])
-            pl_grads = torch.autograd.grad(outputs=[(gen_img * pl_noise).sum()], inputs=[gen_ws], create_graph=True,
-                                               only_inputs=True)[0]
-            pl_lengths = pl_grads.square().sum(2).mean(1).sqrt()
-            pl_mean = self.pl_mean.lerp(pl_lengths.mean(), self.pl_decay)
-            self.pl_mean.copy_(pl_mean.detach())
-            pl_penalty = (pl_lengths - pl_mean).square()
-            loss_Gpl = pl_penalty * self.pl_weight
 
-            loss_Gpl = (gen_img[:, 0, 0, 0] * 0 + loss_Gpl).mean().mul(self.G_reg_interval)
-            self.log('loss_Gpl', loss_Gpl)
-
-
-        return loss_Gmain + loss_Gpl + id_loss
+        return loss_Gmain + id_loss
 
     def on_validation_start(self):
         super(StyleGANFinetuneModule, self).on_validation_start()
@@ -162,7 +145,7 @@ class StyleGANFinetuneModule(StyleGANModule):
     def log_images(self, real, fake):
         self.update_k_layered_gen()
         # tensors [self.real, self.fake, preds, self.cartoon, self.edge_fake]
-        if self.global_step // 2 % self.hparams.train.logging.img_log_freq in (0,1):
+        if self.check_count('img_log_freq', self.hparams.train.logging.img_log_freq) or self.global_step // 2 % self.hparams.train.logging.img_log_freq in (0,1):
             if self.freezed_gen_z is None:
                 bs = real.shape[0]
                 gen_z = torch.randn([bs, self.z_dim]).type_as(real)
