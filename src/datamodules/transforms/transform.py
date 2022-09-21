@@ -52,8 +52,6 @@ def get_cartoon_transform(load_size, fine_size, is_train, apply_strong=True, mea
 
     if is_train:
         pre_process = [
-            A.ShiftScaleRotate(shift_limit=0.001, rotate_limit=20, scale_limit=0.3, interpolation=cv2.INTER_CUBIC,
-                               p=normal_prob),
             A.SmallestMaxSize(load_size, always_apply=True, interpolation=cv2.INTER_CUBIC),
             A.HorizontalFlip(p=0.5),
             A.RandomCrop(fine_size, fine_size, always_apply=True)]
@@ -87,8 +85,6 @@ def get_transform(load_size, fine_size, is_train, apply_strong=True, mean=(0.5, 
     if is_train:
         pre_process = [
             A.SmallestMaxSize(load_size, always_apply=True, interpolation=cv2.INTER_CUBIC),
-            A.ShiftScaleRotate(shift_limit=0.001, rotate_limit=10, scale_limit=0.05, interpolation=cv2.INTER_CUBIC,
-                               p=prob),
             A.HorizontalFlip(p=0.5),
             A.RandomCrop(fine_size, fine_size, always_apply=True),
         ]

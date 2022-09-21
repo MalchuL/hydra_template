@@ -110,7 +110,8 @@ class StyleGANFinetuneModule(StyleGANModule):
 
 
     def get_k_layers_stylegan(self, k, netG: Generator):
-        new_state_dict = {**netG.mapping.state_dict(prefix='mapping.')}
+        # new_state_dict = {**netG.mapping.state_dict(prefix='mapping.')}
+        new_state_dict = {}
         syntesis = netG.synthesis
         blocks = syntesis.block_resolutions[:k]
         # print('Blocks from  base', blocks)
