@@ -23,7 +23,7 @@ hparams:
 
   # Train specific parameters
   train:
-
+    inner_batch_size: 16  # Batch size for training
     netD: # Discriminator model
       _target_: src.models.components.discriminators.stylegan_discriminator.Discriminator
       c_dim: 0
@@ -67,7 +67,7 @@ hparams:
 
     losses:
       r1:
-        r1_gamma: 0.8192
+        r1_gamma: 1.0
         D_reg_interval: 16
 
       path_length:

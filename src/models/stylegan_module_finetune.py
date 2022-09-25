@@ -137,7 +137,7 @@ class StyleGANFinetuneModule(StyleGANModule):
         self.log('id_loss', id_loss / self.id_loss.weight)
 
 
-        return loss_Gmain + id_loss
+        return loss_Gmain + id_loss, gen_img.detach()
 
     def on_validation_start(self):
         super(StyleGANFinetuneModule, self).on_validation_start()
@@ -146,7 +146,7 @@ class StyleGANFinetuneModule(StyleGANModule):
     def log_images(self, real, fake):
         self.update_k_layered_gen()
         # tensors [self.real, self.fake, preds, self.cartoon, self.edge_fake]
-        if self.check_count('img_log_freq', self.hparams.train.logging.img_log_freq) or self.global_step // 2 % self.hparams.train.logging.img_log_freq in (0,1):
+        if self.check_count('img_log_freq', self.hparams.train.logging.img_log_freq):
             if self.freezed_gen_z is None:
                 bs = real.shape[0]
                 gen_z = torch.randn([bs, self.z_dim]).type_as(real)

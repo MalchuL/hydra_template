@@ -140,7 +140,7 @@ class StyleGANModule(LightningModule):
         loss_Gmain = torch.nn.functional.softplus(-gen_logits)  # -log(sigmoid(gen_logits))
         loss_Gmain = loss_Gmain.mean()
 
-        return loss_Gmain
+        return loss_Gmain, gen_img.detach()
 
     def generator_reg(self, gen_z):
         batch_size = gen_z.shape[0] // self.pl_batch_shrink
@@ -172,8 +172,7 @@ class StyleGANModule(LightningModule):
             self.log('augment_pipe_p', self.augment_pipe.p)
             self.log('ada_stats', self.ada_stats)
 
-    def discriminator_loss(self, real_img, gen_z):
-        gen_img, _gen_ws = self.run_G(gen_z)
+    def discriminator_loss(self, real_img, gen_img):
         gen_logits = self.run_D(gen_img) # Gets synced by loss_Dreal.
 
         loss_Dgen = torch.nn.functional.softplus(gen_logits) # -log(1 - sigmoid(gen_logits))
@@ -208,13 +207,19 @@ class StyleGANModule(LightningModule):
         return loss_Dr1
 
     @rank_zero_only
-    def check_count(self, key, freq):
-        self.call_count[key] += 1
-        if self.call_count[key] >= freq:
-            self.call_count[key] = 0
-            return True
+    def check_count(self, key, freq, update_count=True):
+        if update_count:
+            self.call_count[key] += 1
+
+            if self.call_count[key] >= freq:
+                self.call_count[key] = 0
+                return True
+            else:
+                return False
         else:
-            return False
+            return self.call_count[key] + 1 >= freq
+
+
 
 
     def training_step(self, batch: Any, batch_idx: int):
@@ -222,70 +227,91 @@ class StyleGANModule(LightningModule):
 
         real = batch['real']
         bs = real.shape[0]
+
+        gradiend_accumulation = bs // self.hparams.train.inner_batch_size
+        assert bs % self.hparams.train.inner_batch_size == 0 and bs >= self.hparams.train.inner_batch_size
+        inner_batch_size = self.hparams.train.inner_batch_size
+
         self.gen_z = torch.randn([bs, self.z_dim]).type_as(real)
 
         g_opt, d_opt = self.optimizers()
-        STEPS_OFFSET = 2  # self.global_step will skips by 2 : [0, 2, 4, 8]
 
-        ######################
-        # Optimize Generator #
-        ######################
-        self.netG.train()
-        self.netD.train()
 
-        self.requires_grad(self.netG, True)
-        self.requires_grad(self.netD, False)
+        for i in range(gradiend_accumulation):
+            gen_z_small = self.gen_z[i * inner_batch_size: (i + 1) * inner_batch_size]
+            real_small = real[i * inner_batch_size: (i + 1) * inner_batch_size]
 
-        loss_G = self.generator_loss(self.gen_z)
-
-        self.log('loss_G', loss_G, prog_bar=True)
-
-        g_opt.zero_grad()
-        self.manual_backward(loss_G)
-        g_opt.step()
-
-        ##########################
-        # Optimize Discriminator #
-        ##########################
-        self.netD.train()
-        self.netG.eval()
-
-        self.requires_grad(self.netG, False)
-        self.requires_grad(self.netD, True)
-
-        errD, fake_img = self.discriminator_loss(real, self.gen_z)
-        self.log_images(real, fake_img)
-        self.log('loss_D', errD, prog_bar=True)
-
-        d_opt.zero_grad()
-        self.manual_backward(errD)
-        d_opt.step()
-
-        ##########################
-        # Reg generator
-        ##########################
-        if self.check_count('G_reg_interval', self.G_reg_interval):
+            ######################
+            # Optimize Generator #
+            ######################
             self.netG.train()
-            self.requires_grad(self.netG, True)
-            G_reg_loss = self.generator_reg(self.gen_z) * self.G_reg_interval
-            self.log('G_reg_loss', G_reg_loss, prog_bar=True)
-
-            g_opt.zero_grad()
-            self.manual_backward(G_reg_loss)
-            g_opt.step()
-
-        ##########################
-        # Reg discriminator
-        ##########################
-        if self.check_count('D_reg_interval', self.D_reg_interval):
             self.netD.train()
-            self.requires_grad(self.netD, True)
-            D_reg_loss = self.discriminator_reg(real) * self.D_reg_interval
-            self.log('D_reg_loss', D_reg_loss, prog_bar=True)
 
-            d_opt.zero_grad()
-            self.manual_backward(D_reg_loss)
-            d_opt.step()
+            self.requires_grad(self.netG, True)
+            self.requires_grad(self.netD, False)
+
+            loss_G, gen_img = self.generator_loss(gen_z_small)
+
+            self.log('loss_G', loss_G, prog_bar=True)
+
+
+            self.manual_backward(loss_G / gradiend_accumulation)
+
+
+            ##########################
+            # Optimize Discriminator #
+            ##########################
+            self.netD.train()
+            self.netG.eval()
+
+            self.requires_grad(self.netG, False)
+            self.requires_grad(self.netD, True)
+
+            errD, fake_img = self.discriminator_loss(real_small, gen_img)
+            if i == 0:
+                self.log_images(real_small, fake_img)
+            self.log('loss_D', errD, prog_bar=True)
+
+
+            self.manual_backward(errD / gradiend_accumulation)
+
+        g_opt.step()
+        g_opt.zero_grad()
+
+        d_opt.step()
+        d_opt.zero_grad()
+
+        for i in range(gradiend_accumulation):
+            gen_z_small = self.gen_z[i * inner_batch_size: (i + 1) * inner_batch_size]
+            real_small = real[i * inner_batch_size: (i + 1) * inner_batch_size]
+            ##########################
+            # Reg generator
+            ##########################
+            if self.check_count('G_reg_interval', self.G_reg_interval, update_count=i == gradiend_accumulation - 1):
+                self.netG.train()
+                self.requires_grad(self.netG, True)
+                G_reg_loss = self.generator_reg(gen_z_small) * self.G_reg_interval
+                self.log('G_reg_loss', G_reg_loss, prog_bar=True)
+
+                self.manual_backward(G_reg_loss / gradiend_accumulation)
+
+            ##########################
+            # Reg discriminator
+            ##########################
+            if self.check_count('D_reg_interval', self.D_reg_interval, update_count=i == gradiend_accumulation - 1):
+                self.netD.train()
+                self.requires_grad(self.netD, True)
+                D_reg_loss = self.discriminator_reg(real_small) * self.D_reg_interval
+                self.log('D_reg_loss', D_reg_loss, prog_bar=True)
+
+                self.manual_backward(D_reg_loss / gradiend_accumulation)
+
+        g_opt.step()
+        g_opt.zero_grad()
+
+        d_opt.step()
+        d_opt.zero_grad()
+
 
         sch_G, sch_D = self.lr_schedulers()
         sch_G.step()
