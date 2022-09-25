@@ -42,18 +42,21 @@ class StyleGANFinetuneModule(StyleGANModule):
     Read the docs:
         https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html
     """
-
-    GENERATOR_LOAD_NAME = 'netG_ema'
+    GENERATOR_LOAD_NAME = 'netG'
+    DISCRIMINATOR_LOAD_NAME = 'netD'
+    GENERATOR_EMA_LOAD_NAME = 'netG_ema'
 
     def __init__(
         self,
         hparams,
         k_blending_layers=0,
+        use_ema_for_k_layers=False,
         is_train=True
     ):
         super().__init__(hparams, is_train)
 
         self.k_blending_layers = k_blending_layers
+        self.use_ema_for_k_layers = use_ema_for_k_layers
         self.netG_k_layered = copy.deepcopy(self.netG).eval()
         if is_train:
             # Copy of model for generating samples
@@ -69,6 +72,9 @@ class StyleGANFinetuneModule(StyleGANModule):
                                  torch.tensor(self.hparams.train.losses.facial_recognition.norm.std).view(1, -1, 1, 1))
 
             self.face_crop = list(self.hparams.train.losses.facial_recognition.face_crop)
+
+        load_dict(self.netG_ema, self.GENERATOR_EMA_LOAD_NAME, self.hparams.train.initialization.pretrain_checkpoint_G)
+        load_dict(self.netD, self.DISCRIMINATOR_LOAD_NAME, self.hparams.train.initialization.pretrain_checkpoint_G)
 
     def id_loss_mapping(self, real_tensor):
         return (real_tensor - self.id_loss_mean) / self.id_loss_std
@@ -105,7 +111,10 @@ class StyleGANFinetuneModule(StyleGANModule):
         if k is None:
             k = self.k_blending_layers
         # From https://arxiv.org/pdf/2010.05334.pdf
-        partial_state_dict = self.get_k_layers_stylegan(k, self.netG_ema)
+        if self.use_ema_for_k_layers:
+            partial_state_dict = self.get_k_layers_stylegan(k, self.netG_ema)
+        else:
+            partial_state_dict = self.get_k_layers_stylegan(k, self.netG)
         self.netG_k_layered.load_state_dict({**self.netG_samples_generator.state_dict(), **partial_state_dict}, strict=True)
 
 
@@ -146,7 +155,7 @@ class StyleGANFinetuneModule(StyleGANModule):
     def log_images(self, real, fake):
         self.update_k_layered_gen()
         # tensors [self.real, self.fake, preds, self.cartoon, self.edge_fake]
-        if self.check_count('img_log_freq', self.hparams.train.logging.img_log_freq):
+        if self.check_count('img_log_freq', self.hparams.train.logging.img_log_freq) or self.global_step in (0, 1):
             if self.freezed_gen_z is None:
                 bs = real.shape[0]
                 gen_z = torch.randn([bs, self.z_dim]).type_as(real)

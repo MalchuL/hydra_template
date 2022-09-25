@@ -6,7 +6,7 @@ def load_dict(model, key, path):
     state_dict = ckpt['state_dict']
     new_state_dict = {}
     for k, v in state_dict.items():
-        if key in k:
+        if key + '.' in k:
             k = str(k)
             key = str(key)
             index = k.find(key)

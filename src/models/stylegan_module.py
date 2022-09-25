@@ -320,7 +320,7 @@ class StyleGANModule(LightningModule):
     @rank_zero_only
     def log_images(self, real, fake):
         # tensors [self.real, self.fake, preds, self.cartoon, self.edge_fake]
-        if self.check_count('img_log_freq', self.hparams.train.logging.img_log_freq):
+        if self.check_count('img_log_freq', self.hparams.train.logging.img_log_freq) or self.global_step in (0, 1):
             if self.freezed_gen_z is None:
                 bs = real.shape[0]
                 gen_z = torch.randn([bs, self.z_dim]).type_as(real)
