@@ -42,7 +42,7 @@ class StyleGANFinetuneModule(StyleGANModule):
     Read the docs:
         https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html
     """
-    GENERATOR_LOAD_NAME = 'netG'
+    GENERATOR_LOAD_NAME = 'netG_ema'
     DISCRIMINATOR_LOAD_NAME = 'netD'
     GENERATOR_EMA_LOAD_NAME = 'netG_ema'
 
@@ -50,12 +50,15 @@ class StyleGANFinetuneModule(StyleGANModule):
         self,
         hparams,
         k_blending_layers=0,
+        blending_mode='DCT_Net',
         use_ema_for_k_layers=False,
         is_train=True
     ):
         super().__init__(hparams, is_train)
 
         self.k_blending_layers = k_blending_layers
+        assert blending_mode in ['DCT_Net', 'toonify']
+        self.blending_mode = blending_mode
         self.use_ema_for_k_layers = use_ema_for_k_layers
         self.netG_k_layered = copy.deepcopy(self.netG).eval()
         if is_train:
@@ -111,11 +114,28 @@ class StyleGANFinetuneModule(StyleGANModule):
         if k is None:
             k = self.k_blending_layers
         # From https://arxiv.org/pdf/2010.05334.pdf
-        if self.use_ema_for_k_layers:
-            partial_state_dict = self.get_k_layers_stylegan(k, self.netG_ema)
+        if self.blending_mode == 'toonify':
+            # Mapper from samples generator, first k layers of syntesier from finetuned,
+
+            # Use first layers from ema or from finetuned
+            if self.use_ema_for_k_layers:
+                partial_state_dict = self.get_k_layers_stylegan(k, self.netG_ema)
+            else:
+                partial_state_dict = self.get_k_layers_stylegan(k, self.netG)
+            self.netG_k_layered.load_state_dict({**self.netG_samples_generator.state_dict(), **partial_state_dict}, strict=True)
+        elif self.blending_mode == 'DCT_Net':
+            # Mapper from samples generator, first k layers of syntesier from samples generator,
+            partial_state_dict = self.get_k_layers_stylegan(k, self.netG_samples_generator)
+            partial_state_dict.update(self.netG_samples_generator.mapping.state_dict(prefix='mapping.'))
+
+            # Use last layers from ema or from finetuned
+            if self.use_ema_for_k_layers:
+                mapped_to_state_dict = self.netG_ema.state_dict()
+            else:
+                mapped_to_state_dict = self.netG.state_dict()
+            self.netG_k_layered.load_state_dict({**mapped_to_state_dict, **partial_state_dict}, strict=True)
         else:
-            partial_state_dict = self.get_k_layers_stylegan(k, self.netG)
-        self.netG_k_layered.load_state_dict({**self.netG_samples_generator.state_dict(), **partial_state_dict}, strict=True)
+            raise ValueError("blending_mode must be in ['DCT_Net', toonify]")
 
 
     def get_k_layers_stylegan(self, k, netG: Generator):
