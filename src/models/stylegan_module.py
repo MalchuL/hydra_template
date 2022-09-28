@@ -44,73 +44,75 @@ class StyleGANModule(LightningModule):
 
     def __init__(
         self,
-        hparams,
+        config,
         is_train=True
     ):
         super().__init__()
 
-        # this line allows to access init params with 'self.hparams' attribute
+        # this line allows to access init params with 'self.config' attribute
         # also ensures init params will be stored in ckpt
         self.automatic_optimization = False
-        self.save_hyperparameters(hparams)
+        self.config = config
+
+        self.save_hyperparameters('config')
 
         self.netG = self.create_generator()
         self.netG_ema = copy.deepcopy(self.netG).eval()
 
         logger.info(self.netG)
 
-        self.register_buffer('mean', torch.tensor(self.hparams.norm.mean).view(1, -1, 1, 1))
-        self.register_buffer('std', torch.tensor(self.hparams.norm.std).view(1, -1, 1, 1))
+        self.register_buffer('mean', torch.tensor(self.config.norm.mean).view(1, -1, 1, 1))
+        self.register_buffer('std', torch.tensor(self.config.norm.std).view(1, -1, 1, 1))
 
-        self.z_dim = self.hparams.z_dim
+        self.z_dim = self.config.z_dim
 
         if is_train:
-            torch.backends.cudnn.benchmark = self.hparams.train.speed.cudnn_benchmark  # Improves training speed.
-            torch.backends.cuda.matmul.allow_tf32 = self.hparams.train.speed.allow_tf32  # Allow PyTorch to internally use tf32 for matmul
-            torch.backends.cudnn.allow_tf32 = self.hparams.train.speed.allow_tf32  # Allow PyTorch to internally use tf32 for convolutions
+            torch.backends.cudnn.benchmark = self.config.train.speed.cudnn_benchmark  # Improves training speed.
+            torch.backends.cuda.matmul.allow_tf32 = self.config.train.speed.allow_tf32  # Allow PyTorch to internally use tf32 for matmul
+            torch.backends.cudnn.allow_tf32 = self.config.train.speed.allow_tf32  # Allow PyTorch to internally use tf32 for convolutions
 
-            self.augment_pipe = get_augments(self.hparams.train.ada_augs.name)
+            self.augment_pipe = get_augments(self.config.train.ada_augs.name)
 
             self.netD = self.create_discriminator()
             logging.info(self.netD)
 
 
-            self.G_reg_interval = self.hparams.train.losses.path_length.G_reg_interval
-            self.D_reg_interval = self.hparams.train.losses.r1.D_reg_interval
+            self.G_reg_interval = self.config.train.losses.path_length.G_reg_interval
+            self.D_reg_interval = self.config.train.losses.r1.D_reg_interval
 
             # Weights block
             # TODO add mb_ratio = reg_interval / (reg_interval + 1)
             self.register_buffer('pl_mean', torch.zeros([]))
 
             # Additional params
-            self.style_mixing_prob = self.hparams.train.style_mixing_prob
+            self.style_mixing_prob = self.config.train.style_mixing_prob
 
-            self.ada_target = self.hparams.train.ada_augs.ada_target
+            self.ada_target = self.config.train.ada_augs.ada_target
             self.register_buffer('ada_stats', torch.zeros([]))
-            self.ada_gamma = self.hparams.train.ada_augs.ada_gamma
-            self.ada_interval = self.hparams.train.ada_augs.ada_interval
-            self.ada_kimg = self.hparams.train.ada_augs.ada_kimg
+            self.ada_gamma = self.config.train.ada_augs.ada_gamma
+            self.ada_interval = self.config.train.ada_augs.ada_interval
+            self.ada_kimg = self.config.train.ada_augs.ada_kimg
 
-            self.r1_gamma = self.hparams.train.losses.r1.r1_gamma
+            self.r1_gamma = self.config.train.losses.r1.r1_gamma
 
-            self.pl_batch_shrink = self.hparams.train.losses.path_length.pl_batch_shrink
-            self.pl_weight = self.hparams.train.losses.path_length.pl_weight
-            self.pl_decay = self.hparams.train.losses.path_length.pl_decay
+            self.pl_batch_shrink = self.config.train.losses.path_length.pl_batch_shrink
+            self.pl_weight = self.config.train.losses.path_length.pl_weight
+            self.pl_decay = self.config.train.losses.path_length.pl_decay
 
             self.freezed_gen_z = None
 
             self.call_count = defaultdict(int)
     def create_generator(self):
-        netG = instantiate(self.hparams.netG)
-        if self.hparams.train.initialization.pretrain_checkpoint_G:
-            load_dict(netG, self.GENERATOR_LOAD_NAME, self.hparams.train.initialization.pretrain_checkpoint_G)
+        netG = instantiate(self.config.netG)
+        if self.config.train.initialization.pretrain_checkpoint_G:
+            load_dict(netG, self.GENERATOR_LOAD_NAME, self.config.train.initialization.pretrain_checkpoint_G)
         else:
-            init_net(netG, **self.hparams.train.initialization.init_G)
+            init_net(netG, **self.config.train.initialization.init_G)
         return netG
 
     def create_discriminator(self):
-        netD = instantiate(self.hparams.train.netD)
-        init_net(netD, **self.hparams.train.initialization.init_D)
+        netD = instantiate(self.config.train.netD)
+        init_net(netD, **self.config.train.initialization.init_D)
         return netD
 
     def backward_mapping(self, real_tensor):
@@ -229,9 +231,9 @@ class StyleGANModule(LightningModule):
         real = batch['real']
         bs = real.shape[0]
 
-        gradiend_accumulation = bs // self.hparams.train.inner_batch_size
-        assert bs % self.hparams.train.inner_batch_size == 0 and bs >= self.hparams.train.inner_batch_size
-        inner_batch_size = self.hparams.train.inner_batch_size
+        gradiend_accumulation = bs // self.config.train.inner_batch_size
+        assert bs % self.config.train.inner_batch_size == 0 and bs >= self.config.train.inner_batch_size
+        inner_batch_size = self.config.train.inner_batch_size
 
         self.gen_z = torch.randn([bs, self.z_dim]).type_as(real)
 
@@ -321,7 +323,7 @@ class StyleGANModule(LightningModule):
     @rank_zero_only
     def log_images(self, real, fake):
         # tensors [self.real, self.fake, preds, self.cartoon, self.edge_fake]
-        if self.check_count('img_log_freq', self.hparams.train.logging.img_log_freq) or self.global_step in (0, 1):
+        if self.check_count('img_log_freq', self.config.train.logging.img_log_freq) or self.global_step in (0, 1):
             if self.freezed_gen_z is None:
                 bs = real.shape[0]
                 gen_z = torch.randn([bs, self.z_dim]).type_as(real)
@@ -351,7 +353,7 @@ class StyleGANModule(LightningModule):
         fake = self(gen_z)
 
         grid = torchvision.utils.make_grid(torch.cat([fake], dim=0))
-        grid = grid * torch.tensor(self.hparams.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.hparams.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
+        grid = grid * torch.tensor(self.config.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.config.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
 
         torchvision.utils.save_image(grid, str(self.val_folder / (str(round(real_idx[0].item())) + '.png')), nrow=1)
         return {}
@@ -359,8 +361,8 @@ class StyleGANModule(LightningModule):
     def on_train_batch_end(self, outputs, batch, batch_idx: int, dataloader_idx: int):
 
         with torch.no_grad():
-            ema_kimg = self.hparams.train.ema.ema_kimg
-            ema_rampup = self.hparams.train.ema.ema_rampup
+            ema_kimg = self.config.train.ema.ema_kimg
+            ema_rampup = self.config.train.ema.ema_rampup
             ema_nimg = ema_kimg * 1000
             if ema_rampup is not None:
                 ema_nimg = min(ema_nimg, self.global_step * ema_rampup / 2)
@@ -377,7 +379,7 @@ class StyleGANModule(LightningModule):
 
     def on_validation_epoch_end(self) -> None:
         with torch.inference_mode():
-            fid_score = calculate_fretchet(str(self.val_folder.absolute()), self.hparams.val.val_path, device=self.device, num_workers=self.hparams.val.num_workers)
+            fid_score = calculate_fretchet(str(self.val_folder.absolute()), self.config.val.val_path, device=self.device, num_workers=self.config.val.num_workers)
             self.log('fid_score', fid_score)
 
     def get_scheduler(self, optimizer, scheduler_params):
@@ -404,11 +406,11 @@ class StyleGANModule(LightningModule):
         """
         params_G = self.netG.parameters()
         params_D = self.netD.parameters()
-        optimizer_G = instantiate({'params': params_G, **self.hparams.train.optimizing.optimizers.optimizer_G})
-        optimizer_D = instantiate({'params': params_D, **self.hparams.train.optimizing.optimizers.optimizer_D})
-        interval = self.hparams.train.optimizing.schedulers.interval
-        return [optimizer_G, optimizer_D], [{'scheduler': self.get_scheduler(optimizer_G, self.hparams.train.optimizing.schedulers.scheduler_G), 'interval': interval},
-                                            {'scheduler': self.get_scheduler(optimizer_D, self.hparams.train.optimizing.schedulers.scheduler_D), 'interval': interval}]
+        optimizer_G = instantiate({'params': params_G, **self.config.train.optimizing.optimizers.optimizer_G})
+        optimizer_D = instantiate({'params': params_D, **self.config.train.optimizing.optimizers.optimizer_D})
+        interval = self.config.train.optimizing.schedulers.interval
+        return [optimizer_G, optimizer_D], [{'scheduler': self.get_scheduler(optimizer_G, self.config.train.optimizing.schedulers.scheduler_G), 'interval': interval},
+                                            {'scheduler': self.get_scheduler(optimizer_D, self.config.train.optimizing.schedulers.scheduler_D), 'interval': interval}]
 
 
 if __name__ == "__main__":

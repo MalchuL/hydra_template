@@ -7,7 +7,7 @@ k_blending_layers: 3  # Resolution at 2 ^ (k_blending_layers + 1)
 use_ema_for_k_layers: True
 blending_mode: 'DCT_Net' # in ['DCT_Net', toonify]
 
-hparams:
+config:
   # Train specific parameters
 
   train:

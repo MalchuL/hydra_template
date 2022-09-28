@@ -48,13 +48,14 @@ class StyleGANFinetuneModule(StyleGANModule):
 
     def __init__(
         self,
-        hparams,
+        config,
         k_blending_layers=0,
         blending_mode='DCT_Net',
         use_ema_for_k_layers=False,
         is_train=True
     ):
-        super().__init__(hparams, is_train)
+        super().__init__(config, is_train)
+        self.save_hyperparameters('k_blending_layers', 'blending_mode', 'use_ema_for_k_layers', 'config')
 
         self.k_blending_layers = k_blending_layers
         assert blending_mode in ['DCT_Net', 'toonify']
@@ -67,18 +68,18 @@ class StyleGANFinetuneModule(StyleGANModule):
         self.netG_samples_generator = copy.deepcopy(self.netG).eval()
         if is_train:
             # Id loss
-            self.id_loss = LossWrapper(IDLoss(ir_se50_weights=self.hparams.train.losses.facial_recognition.ir_se50_weights,
-                                              empty_scale=self.hparams.train.losses.facial_recognition.empty_scale),
-                                       self.hparams.train.losses.weights.id_weight)
+            self.id_loss = LossWrapper(IDLoss(ir_se50_weights=self.config.train.losses.facial_recognition.ir_se50_weights,
+                                              empty_scale=self.config.train.losses.facial_recognition.empty_scale),
+                                       self.config.train.losses.weights.id_weight)
             self.register_buffer('id_loss_mean',
-                                 torch.tensor(self.hparams.train.losses.facial_recognition.norm.mean).view(1, -1, 1, 1))
+                                 torch.tensor(self.config.train.losses.facial_recognition.norm.mean).view(1, -1, 1, 1))
             self.register_buffer('id_loss_std',
-                                 torch.tensor(self.hparams.train.losses.facial_recognition.norm.std).view(1, -1, 1, 1))
+                                 torch.tensor(self.config.train.losses.facial_recognition.norm.std).view(1, -1, 1, 1))
 
-            self.face_crop = list(self.hparams.train.losses.facial_recognition.face_crop)
+            self.face_crop = list(self.config.train.losses.facial_recognition.face_crop)
 
-            load_dict(self.netG_ema, self.GENERATOR_EMA_LOAD_NAME, self.hparams.train.initialization.pretrain_checkpoint_G)
-            load_dict(self.netD, self.DISCRIMINATOR_LOAD_NAME, self.hparams.train.initialization.pretrain_checkpoint_G)
+            load_dict(self.netG_ema, self.GENERATOR_EMA_LOAD_NAME, self.config.train.initialization.pretrain_checkpoint_G)
+            load_dict(self.netD, self.DISCRIMINATOR_LOAD_NAME, self.config.train.initialization.pretrain_checkpoint_G)
 
     def id_loss_mapping(self, real_tensor):
         return (real_tensor - self.id_loss_mean) / self.id_loss_std
@@ -95,12 +96,12 @@ class StyleGANFinetuneModule(StyleGANModule):
 
     def generate_pair_images(self, z):
         base = self.forward_base(z)
-        base = base * torch.tensor(self.hparams.norm.std, dtype=base.dtype, device=base.device).view(-1, 1, 1) +\
-               torch.tensor(self.hparams.norm.mean, dtype=base.dtype, device=base.device).view(-1, 1, 1)
+        base = base * torch.tensor(self.config.norm.std, dtype=base.dtype, device=base.device).view(-1, 1, 1) +\
+               torch.tensor(self.config.norm.mean, dtype=base.dtype, device=base.device).view(-1, 1, 1)
 
         fake = self(z)
-        fake = fake * torch.tensor(self.hparams.norm.std, dtype=fake.dtype, device=fake.device).view(-1, 1, 1) +\
-               torch.tensor(self.hparams.norm.mean, dtype=fake.dtype, device=fake.device).view(-1, 1, 1)
+        fake = fake * torch.tensor(self.config.norm.std, dtype=fake.dtype, device=fake.device).view(-1, 1, 1) +\
+               torch.tensor(self.config.norm.mean, dtype=fake.dtype, device=fake.device).view(-1, 1, 1)
 
         return base, fake
 
@@ -196,7 +197,7 @@ class StyleGANFinetuneModule(StyleGANModule):
     def log_images(self, real, fake):
         self.update_k_layered_gen()
         # tensors [self.real, self.fake, preds, self.cartoon, self.edge_fake]
-        if self.check_count('img_log_freq', self.hparams.train.logging.img_log_freq) or self.global_step in (0, 1):
+        if self.check_count('img_log_freq', self.config.train.logging.img_log_freq) or self.global_step in (0, 1):
             if self.freezed_gen_z is None:
                 bs = real.shape[0]
                 gen_z = torch.randn([bs, self.z_dim]).type_as(real)
@@ -242,10 +243,10 @@ class StyleGANFinetuneModule(StyleGANModule):
                 el_base = base[el: el + 1]
                 el_fakes = [fake[el:el + 1] for fake in fakes]
                 grid = torchvision.utils.make_grid(torch.cat([el_base, *el_fakes], dim=0))
-                grid = grid * torch.tensor(self.hparams.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.hparams.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
+                grid = grid * torch.tensor(self.config.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.config.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
 
                 el_fake = el_fakes[self.k_blending_layers - 1]
-                el_fake = el_fake * torch.tensor(self.hparams.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.hparams.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
+                el_fake = el_fake * torch.tensor(self.config.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.config.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
 
                 torchvision.utils.save_image(el_fake, str(self.val_folder / (str(round(real_idx[el].item())) + '.png')), nrow=1)
                 torchvision.utils.save_image(grid, str(self.output_epoch_folder / (str(round(real_idx[el].item())) + '.png')), nrow=1)
@@ -259,16 +260,16 @@ class StyleGANFinetuneModule(StyleGANModule):
         Examples:
             https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html#configure-optimizers
         """
-        if self.hparams.train.train_mapper:
+        if self.config.train.train_mapper:
             params_G = self.netG.parameters()
         else:
             params_G = self.netG.synthesis.parameters()
         params_D = self.netD.parameters()
-        optimizer_G = instantiate({'params': params_G, **self.hparams.train.optimizing.optimizers.optimizer_G})
-        optimizer_D = instantiate({'params': params_D, **self.hparams.train.optimizing.optimizers.optimizer_D})
-        interval = self.hparams.train.optimizing.schedulers.interval
-        return [optimizer_G, optimizer_D], [{'scheduler': self.get_scheduler(optimizer_G, self.hparams.train.optimizing.schedulers.scheduler_G), 'interval': interval},
-                                            {'scheduler': self.get_scheduler(optimizer_D, self.hparams.train.optimizing.schedulers.scheduler_D), 'interval': interval}]
+        optimizer_G = instantiate({'params': params_G, **self.config.train.optimizing.optimizers.optimizer_G})
+        optimizer_D = instantiate({'params': params_D, **self.config.train.optimizing.optimizers.optimizer_D})
+        interval = self.config.train.optimizing.schedulers.interval
+        return [optimizer_G, optimizer_D], [{'scheduler': self.get_scheduler(optimizer_G, self.config.train.optimizing.schedulers.scheduler_G), 'interval': interval},
+                                            {'scheduler': self.get_scheduler(optimizer_D, self.config.train.optimizing.schedulers.scheduler_D), 'interval': interval}]
 if __name__ == "__main__":
     import hydra
     import omegaconf
