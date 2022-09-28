@@ -216,10 +216,14 @@ class StyleGANFinetuneModule(StyleGANModule):
             fakes.append(fake)
 
 
-        grid = torchvision.utils.make_grid(torch.cat([base, *fakes], dim=0))
-        grid = grid * torch.tensor(self.hparams.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.hparams.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
+        for el in range(bs):
+            el_base = base[el: el + 1]
+            eL_fakes = [fake[el:el + 1] for  fake in fakes]
+            grid = torchvision.utils.make_grid(torch.cat([el_base, *eL_fakes], dim=0))
+            grid = grid * torch.tensor(self.hparams.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.hparams.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
 
-        torchvision.utils.save_image(grid, str(self.val_folder / (str(round(real_idx[0].item())) + '.png')), nrow=1)
+            torchvision.utils.save_image(grid, str(self.val_folder / (str(round(real_idx[el].item())) + '.png')), nrow=1)
+
         return {}
 
     def configure_optimizers(self):

@@ -37,3 +37,11 @@ class StyleGANFinetuneDataModule(StyleGANDataModule):
     def setup(self, stage: Optional[str] = None):
         super().setup(stage)
         self.train_real_dataset = RepeatDataset(self.train_real_dataset, length=self.length)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_dataset,
+                          batch_size=self.batch_size,
+                          shuffle=False,
+                          drop_last=False,
+                          num_workers=self.num_workers,
+                          pin_memory=self.pin_memory)
