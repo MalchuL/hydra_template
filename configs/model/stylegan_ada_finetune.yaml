@@ -42,3 +42,12 @@ hparams:
           lr: &lr_G 0.002
         optimizer_D:
           lr: &lr_D 0.002
+
+      schedulers:
+        interval: 'step'
+        scheduler_G:
+          max_lr: *lr_G
+          pct_start: ${onecycle_warmup_epoches:${trainer.max_epochs}, 3}  # The percentage of the cycle (in number of steps) spent increasing the learning rate.
+        scheduler_D:
+          max_lr: *lr_D
+          pct_start: ${onecycle_warmup_epoches:${trainer.max_epochs}, 3}  # The percentage of the cycle (in number of steps) spent increasing the learning rate.

@@ -61,10 +61,11 @@ class StyleGANFinetuneModule(StyleGANModule):
         self.blending_mode = blending_mode
         self.use_ema_for_k_layers = use_ema_for_k_layers
         self.netG_k_layered = copy.deepcopy(self.netG).eval()
-        if is_train:
-            # Copy of model for generating samples
-            self.netG_samples_generator = copy.deepcopy(self.netG).eval()
+        self.is_k_layered_update = False
 
+        # Copy of model for generating samples
+        self.netG_samples_generator = copy.deepcopy(self.netG).eval()
+        if is_train:
             # Id loss
             self.id_loss = LossWrapper(IDLoss(ir_se50_weights=self.hparams.train.losses.facial_recognition.ir_se50_weights,
                                               empty_scale=self.hparams.train.losses.facial_recognition.empty_scale),
@@ -76,13 +77,14 @@ class StyleGANFinetuneModule(StyleGANModule):
 
             self.face_crop = list(self.hparams.train.losses.facial_recognition.face_crop)
 
-        load_dict(self.netG_ema, self.GENERATOR_EMA_LOAD_NAME, self.hparams.train.initialization.pretrain_checkpoint_G)
-        load_dict(self.netD, self.DISCRIMINATOR_LOAD_NAME, self.hparams.train.initialization.pretrain_checkpoint_G)
+            load_dict(self.netG_ema, self.GENERATOR_EMA_LOAD_NAME, self.hparams.train.initialization.pretrain_checkpoint_G)
+            load_dict(self.netD, self.DISCRIMINATOR_LOAD_NAME, self.hparams.train.initialization.pretrain_checkpoint_G)
 
     def id_loss_mapping(self, real_tensor):
         return (real_tensor - self.id_loss_mean) / self.id_loss_std
 
     def forward(self, z):
+        assert self.is_k_layered_update, 'Run model.update_k_layered_gen()'
         return self.netG_k_layered(z, None, noise_mode='const')
 
     def forward_ema(self, z):
@@ -90,6 +92,18 @@ class StyleGANFinetuneModule(StyleGANModule):
 
     def forward_base(self, z):
         return self.netG_samples_generator(z, None, noise_mode='const')
+
+    def generate_pair_images(self, z):
+        base = self.forward_base(z)
+        base = base * torch.tensor(self.hparams.norm.std, dtype=base.dtype, device=base.device).view(-1, 1, 1) +\
+               torch.tensor(self.hparams.norm.mean, dtype=base.dtype, device=base.device).view(-1, 1, 1)
+
+        fake = self(z)
+        fake = fake * torch.tensor(self.hparams.norm.std, dtype=fake.dtype, device=fake.device).view(-1, 1, 1) +\
+               torch.tensor(self.hparams.norm.mean, dtype=fake.dtype, device=fake.device).view(-1, 1, 1)
+
+        return base, fake
+
 
     def run_G_and_base(self, z):
         ws_G = self.netG.mapping(z, None)
@@ -111,6 +125,7 @@ class StyleGANFinetuneModule(StyleGANModule):
         return img_G, img_base
 
     def update_k_layered_gen(self, k=None):
+        self.is_k_layered_update = True
         if k is None:
             k = self.k_blending_layers
         # From https://arxiv.org/pdf/2010.05334.pdf
@@ -170,6 +185,12 @@ class StyleGANFinetuneModule(StyleGANModule):
 
     def on_validation_start(self):
         super(StyleGANFinetuneModule, self).on_validation_start()
+        self.output_epoch_folder = Path('output_at_epoch' + str(self.trainer.current_epoch))
+        if not os.path.exists(str(self.output_epoch_folder)):
+            self.output_epoch_folder.mkdir(exist_ok=True, parents=True)
+        if self.local_rank == 0:
+            self.val_generator = torch.Generator(self.device)
+
 
     @rank_zero_only
     def log_images(self, real, fake):
@@ -204,25 +225,30 @@ class StyleGANFinetuneModule(StyleGANModule):
 
         real_idx = batch
         bs = real_idx.shape[0]
-        gen_z = torch.randn([bs, self.z_dim]).type_as(real_idx)
+        if self.local_rank == 0:
+            gen_z = torch.randn([bs, self.z_dim], generator=self.val_generator, device=real_idx.device, dtype=real_idx.dtype)
 
-        base = self.forward_base(gen_z)
-        syntesis = self.netG_ema.synthesis
-        count_blocks = len(syntesis.block_resolutions)
-        fakes = []
-        for k in range(count_blocks):
-            self.update_k_layered_gen(k)
-            fake = self(gen_z)
-            fakes.append(fake)
+            base = self.forward_base(gen_z)
+            syntesis = self.netG_ema.synthesis
+            count_blocks = len(syntesis.block_resolutions)
+            fakes = []
+            for k in range(count_blocks):
+                self.update_k_layered_gen(k)
+                fake = self(gen_z)
+                fakes.append(fake)
 
 
-        for el in range(bs):
-            el_base = base[el: el + 1]
-            eL_fakes = [fake[el:el + 1] for  fake in fakes]
-            grid = torchvision.utils.make_grid(torch.cat([el_base, *eL_fakes], dim=0))
-            grid = grid * torch.tensor(self.hparams.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.hparams.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
+            for el in range(bs):
+                el_base = base[el: el + 1]
+                el_fakes = [fake[el:el + 1] for fake in fakes]
+                grid = torchvision.utils.make_grid(torch.cat([el_base, *el_fakes], dim=0))
+                grid = grid * torch.tensor(self.hparams.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.hparams.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
 
-            torchvision.utils.save_image(grid, str(self.val_folder / (str(round(real_idx[el].item())) + '.png')), nrow=1)
+                el_fake = el_fakes[self.k_blending_layers - 1]
+                el_fake = el_fake * torch.tensor(self.hparams.norm.std, dtype=grid.dtype, device=grid.device).view(-1, 1, 1) + torch.tensor(self.hparams.norm.mean, dtype=grid.dtype, device=grid.device).view(-1, 1, 1)
+
+                torchvision.utils.save_image(el_fake, str(self.val_folder / (str(round(real_idx[el].item())) + '.png')), nrow=1)
+                torchvision.utils.save_image(grid, str(self.output_epoch_folder / (str(round(real_idx[el].item())) + '.png')), nrow=1)
 
         return {}
 

@@ -676,7 +676,7 @@ logger:
 
 **2. Finetune StyleGAN**
 1. Download ckpts for facial recognition from [here](https://drive.google.com/file/d/1KW7bjndL3QG3sxBbZxreGHigcCCpsDgn/view) from this repo  https://github.com/orpatashnik/StyleCLIP
-2. Map ffhq-res256-mirror-paper256-noaug.pkl from stylegan2-ada (From training code you can find this link) https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/paper-fig7c-training-set-sweeps/ffhq70k-paper256-ada-bcr.pkl
+2. Map ffhq70k-paper256-ada.pkl from stylegan2-ada (From training code you can find this link) https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/paper-fig7c-training-set-sweeps/ffhq70k-paper256-ada.pkl
 3. Clone repo https://github.com/NVlabs/stylegan2-ada-pytorch and put notebooks/map_ckpt_to_DCT-net_network.ipynb into repo. This allow you map checkpoint to this repository to use in training
 4. Run `python src/train.py experiment=stylegan_finetune logger=[wandb,tensorboard] pretrain_gen=/home/malchul/work/GAN/DCT_Net/checkpoints/stylegan2_256x256_ada.pth name=046_dct_net_layers`
 

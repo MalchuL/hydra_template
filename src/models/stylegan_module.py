@@ -62,6 +62,8 @@ class StyleGANModule(LightningModule):
         self.register_buffer('mean', torch.tensor(self.hparams.norm.mean).view(1, -1, 1, 1))
         self.register_buffer('std', torch.tensor(self.hparams.norm.std).view(1, -1, 1, 1))
 
+        self.z_dim = self.hparams.z_dim
+
         if is_train:
             torch.backends.cudnn.benchmark = self.hparams.train.speed.cudnn_benchmark  # Improves training speed.
             torch.backends.cuda.matmul.allow_tf32 = self.hparams.train.speed.allow_tf32  # Allow PyTorch to internally use tf32 for matmul
@@ -81,7 +83,6 @@ class StyleGANModule(LightningModule):
             self.register_buffer('pl_mean', torch.zeros([]))
 
             # Additional params
-            self.z_dim = self.hparams.z_dim
             self.style_mixing_prob = self.hparams.train.style_mixing_prob
 
             self.ada_target = self.hparams.train.ada_augs.ada_target
