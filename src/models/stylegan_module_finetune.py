@@ -67,6 +67,9 @@ class StyleGANFinetuneModule(StyleGANModule):
         # Copy of model for generating samples
         self.netG_samples_generator = copy.deepcopy(self.netG).eval()
         if is_train:
+            if self.config.train.netD_ema.apply_ema:
+                self.netD_ema = copy.deepcopy(self.netD)
+
             # Id loss
             self.id_loss = LossWrapper(IDLoss(ir_se50_weights=self.config.train.losses.facial_recognition.ir_se50_weights,
                                               empty_scale=self.config.train.losses.facial_recognition.empty_scale),
@@ -192,6 +195,29 @@ class StyleGANFinetuneModule(StyleGANModule):
         if self.local_rank == 0:
             self.val_generator = torch.Generator(self.device)
 
+
+    def on_train_batch_end(self, outputs, batch, batch_idx: int, dataloader_idx: int):
+        super(StyleGANFinetuneModule, self).on_train_batch_end(outputs, batch, batch_idx, dataloader_idx)
+        if self.config.train.netD_ema.apply_ema:
+            with torch.no_grad():
+                ema_kimg = self.config.train.netD_ema.ema_kimg
+                ema_rampup = self.config.train.netD_ema.ema_rampup
+                ema_nimg = ema_kimg * 1000
+                if ema_rampup is not None:
+                    ema_nimg = min(ema_nimg, self.global_step * ema_rampup / 2)
+                ema_beta = 0.5 ** (1 / max(ema_nimg, 1e-8))
+                for p_ema, p in zip(self.netD_ema.parameters(), self.netD.parameters()):
+                    p_ema.copy_(p.lerp(p_ema, ema_beta))
+                for b_ema, b in zip(self.netD_ema.buffers(), self.netD.buffers()):
+                    b_ema.copy_(b)
+
+    def on_train_epoch_end(self) -> None:
+        if self.config.train.netD_ema.apply_ema:
+            with torch.no_grad():
+                for p_ema, p in zip(self.netD_ema.parameters(), self.netD.parameters()):
+                    p.copy_(p_ema)
+                for b_ema, b in zip(self.netD_ema.buffers(), self.netD.buffers()):
+                    b.copy_(b_ema)
 
     @rank_zero_only
     def log_images(self, real, fake):

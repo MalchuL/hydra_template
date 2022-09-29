@@ -18,6 +18,11 @@ config:
     face_crop: &face_crop [46, 81, 201, 236]  # Face crop for FFHQ
     style_mixing_prob: 0.6
 
+    netD_ema:
+      apply_ema: False
+      ema_kimg: 0.005
+      ema_rampup: null
+
 
     ema:
       ema_kimg: 1.0
@@ -51,3 +56,7 @@ config:
         scheduler_D:
           max_lr: *lr_D
           pct_start: ${onecycle_warmup_epoches:${trainer.max_epochs}, 3}  # The percentage of the cycle (in number of steps) spent increasing the learning rate.
+
+  val:
+    # TODO replace to normal name
+    val_path: ${datamodule.data_dir}/train_real

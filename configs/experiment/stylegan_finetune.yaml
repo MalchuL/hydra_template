@@ -11,15 +11,34 @@ defaults:
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
 
-tags: ["mnist", "simple_dense_net"]
+tags: ["stylegan_finetune"]
 
 seed: 12345
 
 trainer:
   check_val_every_n_epoch: 1
-  max_epochs: 50
-  limit_train_batches: 100
+  max_epochs: 10
+  limit_train_batches: 500  # 32000 images when bs=64
   log_every_n_steps: 5
+
+callbacks:
+  model_checkpoint_each_epoch:
+    _target_: pytorch_lightning.callbacks.ModelCheckpoint
+    verbose: True
+    save_top_k: -1
+    save_weights_only: True
+    dirpath: "checkpoints/"
+    filename: "finetuned_ckpt_{epoch:03d}"
+
+model:
+  config:
+    train:
+      optimizing:
+        schedulers:
+          scheduler_G:
+            pct_start: ${onecycle_warmup_epoches:${trainer.max_epochs}, 0.2}  # The percentage of the cycle (in number of steps) spent increasing the learning rate.
+          scheduler_D:
+            pct_start: ${onecycle_warmup_epoches:${trainer.max_epochs}, 0.2}  # The percentage of the cycle (in number of steps) spent increasing the learning rate.
 
 
 task_name: 'stylegan_finetune'
